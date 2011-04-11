@@ -1,0 +1,25 @@
+Package: confluence-mode
+Section: extensions
+License: GPL-2+
+Depends: emacs (>= 22.1)
+Status: stable
+Compat:
+Maintainer: Jari Aalto <jari.aalto@cante.net>
+Bugs:
+Upstream: Kyle Burton <kyle.burton@gmail.com>
+Upstream-Bugs: http://code.google.com/p/confluence-el/issues/list
+Vcs-Type: svn
+Vcs-Url: http://confluence-el.googlecode.com/svn/trunk
+Vcs-Args:
+Vcs-Browser: http://code.google.com/p/confluence-el/source/browse/
+Vcs-User:
+Vcs-Password:
+Homepage: http://code.google.com/p/confluence-el
+Wiki: http://www.emacswiki.org/emacs/ConfluenceMode
+Commentary:
+Description: mode for interacting with confluence wiki
+ Confluence is a commercial Wiki engine and this package
+ offer remote editing of its pages.
+ .
+ Use M-x confluence-get-page and enter the path to the confluence
+ page. Saving with C-x C-s will push changes back to Wiki.
