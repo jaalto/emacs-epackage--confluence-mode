@@ -2,7 +2,7 @@ Package: confluence-mode
 Section: extensions
 License: GPL-2+
 Depends: emacs (>= 22.1)
-Status: stable
+Status: stable unsafe
 Compat:
 Maintainer: Jari Aalto <jari.aalto@cante.net>
 Bugs:
