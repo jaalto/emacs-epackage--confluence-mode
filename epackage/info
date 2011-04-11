@@ -16,7 +16,7 @@ Vcs-User:
 Vcs-Password:
 Homepage: http://code.google.com/p/confluence-el
 Wiki: http://www.emacswiki.org/emacs/ConfluenceMode
-Commentary:
+Commentary: confluence.el
 Description: mode for interacting with confluence wiki
  Confluence is a commercial Wiki engine and this package
  offer remote editing of its pages.
