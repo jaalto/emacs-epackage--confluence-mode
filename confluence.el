@@ -6,8 +6,8 @@
 ;; Author: Kyle Burton <kyle.burton@gmail.com>
 ;; URL: http://code.google.com/p/confluence-el/
 ;; Keywords: confluence, wiki, xmlrpc
-;; Version: 1.4
-;; Package-Requires: ((xml-rpc "1.6.4"))
+;; Version: 1.5-beta
+;; Package-Requires: ((xml-rpc "1.6.4") (confluence-edit "1.5-beta"))
 
 ;; This file is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -35,9 +35,9 @@
 ;;
 ;; INSTALLATION 
 ;;
-;; You must set confluence-url in your .emacs file before using the
-;; functions in this module.  It's best to place confluence.el and
-;; xml-rpc.el on your load path; often ~/.emacs.d or ~/elisp.
+;; You must set confluence-url in your .emacs file before using the functions
+;; in this module.  It's best to place confluence.el and confluence-edit.el
+;; and xml-rpc.el on your load path; often ~/.emacs.d or ~/elisp.
 ;;
 ;; Some examples:
 ;;
@@ -160,6 +160,7 @@
 (require 'thingatpt)
 (require 'browse-url)
 (require 'image-file)
+(require 'confluence-edit)
 
 (defgroup confluence nil
   "Support for editing confluence wikis."
@@ -316,8 +317,13 @@ Possible values:
 (defconst confluence-xml-substitute-special (fboundp 'xml-substitute-special)
   "Whether or not confluence can override `xml-substitute-special'.")
 
-(defconst confluence-xml-escape-string (fboundp 'xml-escape-string)
-  "Whether or not confluence can override `xml-escape-string'.")
+(defconst confluence-xml-escape-string 
+  (and (fboundp 'xml-escape-string)
+       (not (string-match ".*FOO&amp;BAR.*" 
+                          (with-temp-buffer
+                            (xml-print (xml-rpc-value-to-xml-list "FOO&BAR"))
+                            (buffer-string)))))
+  "Whether or not confluence can/should override `xml-escape-string'.")
 
 (defconst confluence-xml-entity-alist
   '(("quot" . "\"")
@@ -331,14 +337,8 @@ Possible values:
 (defvar confluence-do-coding nil)
 (defvar confluence-input-url nil)
 (defvar confluence-switch-url nil)
-(defvar confluence-completing-read nil)
 (defvar confluence-no-push nil)
 
-(defmacro with-quiet-rpc (&rest body)
-  "Execute the forms in BODY with `url-show-status' set to nil."
-  `(let ((url-show-status nil))
-     ,@body))
-  
 (defun confluence-login (&optional arg)
   "Logs into the current confluence url, if necessary.  With ARG, forces
 re-login to the current url."
@@ -953,7 +953,7 @@ SPACE-NAME."
   "Executes a confluence 'storePage' rpc call with a page struct (or
 'updatePage' if comment or minorEdit flag are specified)."
   (if (or (cf-string-notempty comment) minor-edit)
-      (let ((page-options (list (cons "versionComment" comment) 
+      (let ((page-options (list (cons "versionComment" (or comment "")) 
                                 (cons "minorEdit" minor-edit))))
         (cf-rpc-execute 'confluence1.updatePage page-struct page-options))
     (cf-rpc-execute 'confluence1.storePage page-struct)))
@@ -1647,54 +1647,6 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
                       (concat space-name "/" (or def-page-name ""))
                     nil)))
 
-(defun cf-read-string (prompt-prefix prompt hist-alist-var hist-key 
-                       comp-func-or-table &optional
-                       require-match init-val def-val)
-  "Prompt for a string using the given prompt info and history alist."
-  ;; we actually use the history var as an alist of history vars so we can
-  ;; have different histories in different contexts (e.g. separate space
-  ;; histories for each url and separate page histories for each space)
-  (let ((hist-list (cf-get-struct-value (symbol-value hist-alist-var) 
-                                        hist-key))
-        (result-string nil))
-    (setq result-string
-          (cf-read-string-simple (concat (or prompt-prefix "") prompt)
-                                 'hist-list comp-func-or-table
-                                 require-match init-val def-val))
-    ;; put the new history list back into the alist
-    (cf-set-struct-value hist-alist-var hist-key hist-list)
-    result-string))
-
-(defun cf-read-string-simple (prompt hist-list-var comp-func-or-table
-                              &optional require-match init-val def-val)
-  "Prompt for a string using the given prompt info and history list."
-  (let ((current-completions nil)
-        (current-other-completions nil)
-        (last-comp-str nil)
-        (completion-buffer (or (and (boundp 'completion-buffer)
-                                    completion-buffer)
-                               (current-buffer)))
-        (confluence-completing-read t))
-    (with-quiet-rpc
-     ;; prefer ido-completing-read if available
-     (if (and (fboundp 'ido-completing-read)
-              (listp comp-func-or-table))
-         (ido-completing-read prompt (mapcar 'car comp-func-or-table) nil require-match init-val hist-list-var def-val)
-       (completing-read prompt comp-func-or-table
-                        nil require-match init-val hist-list-var def-val t)))))
-
-(defun cf-read-char (prompt allowed-chars-regex &optional def-char)
-  "Prompt for a character using the given PROMPT and ALLOWED-CHARS-REGEX.
-If DEF-CHAR is given it will be returned if user hits the <enter> key."
-  (let ((the-char nil))
-    (while (not the-char)
-      (setq the-char (char-to-string (read-char-exclusive prompt)))
-      (if (not (string-match allowed-chars-regex the-char))
-          (if (and def-char (string-equal (char-to-string ?\r) the-char))
-              (setq the-char def-char)
-            (setq the-char nil))))
-    the-char))
-  
 (defun cf-minibuffer-setup ()
   "Minibuffer setup hook which changes some keybindings for confluence completion."
   (if confluence-completing-read
@@ -1714,48 +1666,6 @@ If DEF-CHAR is given it will be returned if user hits the <enter> key."
   (if (string-match "\\([^/]+\\)[/]\\(.*\\)" page-path)
       (match-string 2 page-path)
     page-path))
-
-(defun cf-get-struct-value (struct key &optional default-value)
-  "Gets a STRUCT value for the given KEY from the given struct, returning the
-given DEFAULT-VALUE if not found."
-  (or (and struct
-           (cdr (assoc key struct)))
-      default-value))
-
-(defun cf-set-struct-value-copy (struct key value)
-  "Copies the given STRUCT, sets the given KEY to the given VALUE and returns
-the new STRUCT."
-  (let ((temp-struct (copy-alist struct)))
-    (cf-set-struct-value 'temp-struct key value)
-    temp-struct))
-
-(defun cf-set-struct-value (struct-var key value)
-  "Sets (or adds) the given KEY to the given VALUE in the struct named by the
-given STRUCT-VAR."
-  (let ((cur-assoc (assoc key (symbol-value struct-var))))
-    (if cur-assoc
-        (setcdr cur-assoc value)
-      (add-to-list struct-var (cons key value) t))))
-
-(defun cf-result-to-completion-list (result-list key)
-  "Translates the rpc result list into a list suitable for completion."
-  (mapcar
-   '(lambda (el)
-      (cons (cf-get-struct-value el key) t))
-   result-list))
-
-(defun cf-get-page-anchors ()
-  "Gets the anchors in the current page."
-  (let ((anchors nil))
-    (save-excursion
-      (goto-char (point-min))
-      (while (re-search-forward "{anchor:\\([^{}\n]+\\)}" nil t)
-        (push (cons (match-string 1) t) anchors))
-      ;; headings are also implicit anchors
-      (goto-char (point-min))
-      (while (re-search-forward "^h[1-9][.]\\s-+\\(.+?\\)\\s-*$" nil t)
-        (push (cons (match-string 1) t) anchors)))
-    anchors))
 
 (defun cf-complete-space-name (comp-str pred comp-flag)
   "Completion function for confluence spaces."
@@ -1838,16 +1748,6 @@ given STRUCT-VAR."
                                                                  confluence-max-completion-results) "name"))))
   (cf-complete comp-str pred comp-flag current-completions))
 
-(defun cf-complete (comp-str pred comp-flag comp-table)
-  "Executes completion for the given args and COMP-TABLE."
-  (cond
-   ((not comp-flag)
-    (or (try-completion comp-str comp-table pred) comp-str))
-   ((eq comp-flag t)
-    (or (all-completions comp-str comp-table pred) (list comp-str)))
-   ((eq comp-flag 'lambda)
-    (and (assoc comp-str comp-table) t))))
-
 (defun cf-update-buffer-name ()
   "Sets the buffer name based on the buffer info if it is a page buffer."
   (let ((page-name (cf-get-struct-value confluence-page-struct "title"))
@@ -1874,14 +1774,6 @@ given STRUCT-VAR."
 (defun cf-get-default-space ()
   "Gets the default confluence space to use for the current operation."
   (cf-get-struct-value confluence-default-space-alist (cf-get-url)))
-
-(defun cf-string-notempty (str)
-  "Returns t if the given string is not empty."
-  (> (length str) 0))
-
-(defun cf-string-empty (str)
-  "Returns t if the given string is empty."
-  (= (length str) 0))
 
 (defun cf-maybe-url-decode-entities-in-value (value)
   "Decodes XML entities in the given value, which may be a struct, list or
@@ -1934,31 +1826,81 @@ function was not successfully overridden."
     (goto-char (point-min))
     (while (re-search-forward "&\\([^;\n]+\\);" nil t)
       (let ((ent-str (match-string-no-properties 1))
-            (ent-point (match-beginning 1)))
-        (replace-match 
-         (cond
-          ;; simple xml entities
-          ((cdr-safe (assoc ent-str confluence-xml-entity-alist)))
-          ;; decimal number character entities
-          ((save-match-data
-             (and (string-match "^#\\([0-9]+\\)$" ent-str)
-                  (cf-number-entity-to-string (string-to-number (match-string-no-properties 1 ent-str))))))
-          ;; hexidecimal number character entities
-          ((save-match-data
-             (and (string-match "^#x\\([0-9A-Fa-f]+\\)$" ent-str)
-                  (cf-number-entity-to-string (string-to-number (match-string-no-properties 1 ent-str) 16)))))
-          ;; unknown entity
-          (t (concat "&" ent-str ";")))
-         t t)
+            (ent-point (match-beginning 1))
+            untrans-char)
+        (setq untrans-char
+              (catch 'untrans-char
+                (replace-match 
+                 (cond
+                  ;; simple xml entities
+                  ((cdr-safe (assoc ent-str confluence-xml-entity-alist)))
+                  ;; decimal number character entities
+                  ((save-match-data
+                     (and (string-match "^#\\([0-9]+\\)$" ent-str)
+                          (cf-number-entity-to-string (string-to-number (match-string-no-properties 1 ent-str))))))
+                  ;; hexidecimal number character entities
+                  ((save-match-data
+                     (and (string-match "^#x\\([0-9A-Fa-f]+\\)$" ent-str)
+                          (cf-number-entity-to-string (string-to-number (match-string-no-properties 1 ent-str) 16)))))
+                  ;; unknown entity
+                  (t (concat "&" ent-str ";")))
+                 t t)
+                nil))
+        (if untrans-char
+            (progn 
+              (message "Warning: could not decode character with code point %S" untrans-char)
+              (replace-match "")
+              (cf-insert-untranslated-entity untrans-char)))
         (goto-char ent-point)))))
 
 (defun cf-number-entity-to-string (num)
   "Convert an xml number entity value to the appropriate character string."
-  (string (decode-char 'ucs num)))
+  (let ((c (decode-char 'ucs num)))
+    (if (not c)
+        (throw 'untrans-char num))
+    (string c)))
+
+(defun cf-insert-untranslated-entity (num)
+  "Insert codes for an untranslateable entity (compatible with how later
+versions of emacs handle untranslateable characters)."
+  (let ((cur-pos (point))
+        (disp-char (cf-number-entity-to-string #xFFFD)))
+;;     (insert disp-char)
+    (insert ?\0)
+    (put-text-property cur-pos (point) 'untranslated-utf-8 num)
+    (compose-region cur-pos (point) disp-char)
+    (message "FOO inserted %S" (buffer-substring cur-pos (point)))
+))
 
 (defun cf-string-to-number-entity (str)
-  "Convert a single character string to the appropriate xml number entity value"
-  (encode-char (string-to-char str) 'ucs))
+  "Convert a single character string to the appropriate xml number entity
+value"
+  (let ((c (encode-char (string-to-char str) 'ucs)))
+    (if (or (not c)
+            (get-text-property 0 'untranslated-utf-8 str))
+          (throw 'untrans-char str))
+    c))
+        
+(defun cf-remove-untranslated-entity (pos)
+  "Remove codes for an untranslateable entity (compatible with how later
+versions of emacs handle untranslateable characters).  Returns the original
+code point."
+  (let ((untrans-value (get-text-property pos 'untranslated-utf-8)))
+    (if untrans-value
+        (progn
+          (message "FOO deleting %S" (buffer-substring
+                                      (1+ pos)
+                         (next-single-property-change pos 'composition 
+                                                      (current-buffer) 
+                                                      (point-max))))
+          ;; delete an _extra_ bytes, caller will replace first byte
+          (delete-region (1+ pos)
+                         (next-single-property-change pos 'composition 
+                                                      (current-buffer) 
+                                                      (point-max))))
+      )
+    untrans-value))
+
 
 (defun cf-url-encode-nonascii-entities-in-string (value)
   "Entity encodes any non-ascii values in the given string."
@@ -1966,9 +1908,19 @@ function was not successfully overridden."
       (with-temp-buffer
         (insert value)
         (goto-char (point-min))
-        (while (re-search-forward "[^[:ascii:]]" nil t)
-          (let ((encoded-char (cf-string-to-number-entity (match-string 0))))
-            (replace-match (concat "&#" (number-to-string encoded-char) ";") t t)))
+        (while (re-search-forward "[^[:ascii:]]" nil t) 
+          (let ((match-str (match-string 0))
+                encoded-char)
+            (if (catch 'untrans-char
+                  (setq encoded-char (cf-string-to-number-entity match-str))
+                  nil)
+                (setq encoded-char (cf-remove-untranslated-entity
+                                    (match-beginning 0))))
+	    (if encoded-char 
+		(replace-match 
+		 (concat "&#" (number-to-string encoded-char) ";") t t)
+	      (message "Could not encode '%S'" match-str))
+))
         (setq value (buffer-string))))
   value)
 
@@ -2010,393 +1962,6 @@ basic entities."
 ;;;;;;;;;;;;;;;;;;;
 ;;; Confluence mode
 
-(defvar confluence-code-face 'confluence-code-face)
-
-(defface confluence-code-face
-  '((((class color) (background dark))
-     (:foreground "dim gray" :bold t))
-    (((class color) (background light))
-     (:foreground "dim gray"))
-    (t (:bold t)))
-  "Font Lock Mode face used for code in confluence pages.")
-
-(defvar confluence-panel-face 'confluence-panel-face)
-
-(defface confluence-panel-face
-  '((((class color) (background dark))
-     (:background "LightGray"))
-    (((class color) (background light))
-     (:background "LightGray"))
-    (t nil))
-  "Font Lock Mode face used for panel in confluence pages.")
-
-
-(defconst confluence-font-lock-keywords-1
-  (list
-  
-   '("{\\([^{}:\n]+:?\\)[^{}\n]*}"
-     (1 'font-lock-constant-face))
-  
-   '("{[^{}\n]+[:|]title=\\([^}|\n]+\\)[^{}\n]*}"
-     (1 'bold append))
-  
-   '("{warning\\(?:[:][^}\n]*\\)?}\\(\\(.\\|[\n]\\)*?\\){warning}"
-     (1 'font-lock-warning-face prepend))
-   '("{note\\(?:[:][^}\n]*\\)?}\\(\\(.\\|[\n]\\)*?\\){note}"
-     (1 'font-lock-minor-warning-face prepend))
-   '("{info\\(?:[:][^}\n]*\\)?}\\(\\(.\\|[\n]\\)*?\\){info}"
-     (1 'font-lock-doc-face prepend))
-   '("{tip\\(?:[:][^}\n]*\\)?}\\(\\(.\\|[\n]\\)*?\\){tip}"
-     (1 'font-lock-comment-face prepend))
-  
-   ;; bold
-   '("[^[:word:]\\*][*]\\([^*\n]+\\)[*]\\W"
-     (1 'bold))
-   
-   ;; code
-   '("{{\\([^}\n]+\\)}}"
-     (1 'confluence-code-face t))
-   
-   ;; italics/emphasised
-   '("[^[:word:]\\]_\\([^_\n]+\\)_\\W"
-     (1 'italic prepend))
-   '("[^[:word:]\\][?]\\{2\\}\\([^?\n]+\\)[?]\\{2\\}\\W"
-     (1 'italic prepend))
-
-   ;; underline
-   '("[^[:word:]\\][+]\\([^+\n]+\\)[+]\\W"
-     (1 'underline prepend))
-
-   ;; strike-through
-   '("[^[:word:]\\][-]\\([^-\n]+\\)[-]\\W"
-     (1 '(:strike-through t) prepend))
-
-   ;; headings
-   '("^h1[.] \\(.*?\\)\\s-*$"
-     (1 '(bold underline) prepend))
-   '("^h2[.] \\(.*?\\)\\s-*$"
-     (1 '(bold italic underline) prepend))
-   '("^h3[.] \\(.*?\\)\\s-*$"
-     (1 '(italic underline) prepend))
-   '("^h[4-9][.] \\(.*?\\)\\s-*$"
-     (1 'underline prepend))
-
-   ;; bullet points
-   '("^\\([*#]+\\)\\s-"
-     (1 'font-lock-constant-face))
-   
-   ;; links
-   '("\\(\\[\\)\\([^]|\n]*\\)[|]\\([^]\n]+\\)\\(\\]\\)"
-     (1 'font-lock-constant-face)
-     (2 'font-lock-string-face)
-     (3 'underline)
-     (4 'font-lock-constant-face))
-   '("\\(\\[\\)\\([^]|\n]+\\)\\(\\]\\)"
-     (1 'font-lock-constant-face)
-     (2 '(font-lock-string-face underline))
-     (3 'font-lock-constant-face))
-   '("{anchor:\\([^{}\n]+\\)}"
-     (1 'font-lock-string-face))
-
-   ;; images, embedded content
-   '("\\([!]\\)\\([^|\n]+\\)[|]\\(?:[^!\n]*\\)\\([!]\\)"
-     (1 'font-lock-constant-face)
-     (2 '(font-lock-reference-face underline))
-     (3 'font-lock-constant-face))
-   '("\\([!]\\)\\([^!|\n]+\\)\\([!]\\)"
-     (1 'font-lock-constant-face)
-     (2 '(font-lock-reference-face underline))
-     (3 'font-lock-constant-face))
-   
-   ;; tables
-   '("[|]\\{2\\}\\([^|\n]+\\)"
-     (1 'bold))
-   '("\\([|]\\{1,2\\}\\)"
-     (1 'font-lock-constant-face))
-   )
-  
-  "Basic level highlighting for confluence mode.")
-
-(defconst confluence-font-lock-keywords-2
-  (append confluence-font-lock-keywords-1
-          (list
-  
-           ;; code/preformatted blocks
-           '("{noformat\\(?:[:][^}\n]*\\)?}\\(\\(.\\|[\n]\\)*?\\){noformat}"
-             (1 'confluence-code-face t))
-           '("{code\\(?:[:][^}\n]*\\)?}\\(\\(.\\|[\n]\\)*?\\){code}"
-             (1 'confluence-code-face t))
-
-           ;; panels
-           '("{panel\\(?:[:][^}\n]*\\)?}\\(?:\\s-*[\r]?[\n]\\)?\\(\\(.\\|[\n]\\)*?\\){panel}"
-             (1 'confluence-panel-face append))
-           ))
-  "Gaudy level highlighting for confluence mode.")
-
-(defvar confluence-font-lock-keywords confluence-font-lock-keywords-1
-  "Default expressions to highlight in Confluence modes.")
-
-
-(defun confluence-newline-and-indent ()
-  "Inserts a newline and indents using the previous indentation.
-Supports lists, tables, and headers."
-  (interactive)
-  (let ((indentation nil)
-        (limit nil))
-    ;; find the beginning of the previous line, skipping "soft" newlines if
-    ;; "hard" newlines are being used (like in longlines mode)
-    (save-excursion
-      (while (and (search-backward "\n" nil 'silent)
-                  use-hard-newlines
-                  (not (get-text-property (match-beginning 0) 'hard))))
-      (setq limit (point)))
-    ;; find the indentation of the previous line
-    (save-excursion
-      (if (re-search-backward "^\\(?:\\(?:\\(?:[*#]+\\|h[0-9][.]\\)[ \t]+\\)\\|[|]+\\)" limit t)
-          (setq indentation (match-string 0))))
-    (newline)
-    (if indentation
-        (insert indentation))))
-
-(defun confluence-list-indent-dwim (&optional arg)
-  "Increases the list indentationn on the current line by 1 bullet.  With ARG decreases by 1 bullet."
-  (interactive "P")
-  (let ((indent-arg (if arg -1 1)))
-    (if (and mark-active transient-mark-mode)
-        (let ((beg (min (point) (mark)))
-              (end (max (point) (mark)))
-              (tmp-point nil))
-          (save-excursion
-            (goto-char end)
-            (if (bolp)
-                (forward-line -1))
-            (setq tmp-point (line-beginning-position))
-            (confluence-modify-list-indent indent-arg)
-            (while (and (forward-line -1)
-                        (not (equal (line-beginning-position) tmp-point))
-                        (>= (line-end-position) beg))
-              (setq tmp-point (line-beginning-position))
-              (confluence-modify-list-indent indent-arg))
-          ))
-    (confluence-modify-list-indent indent-arg))))
-
-(defun confluence-modify-list-indent (depth)
-  "Updates the list indentation on the current line, adding DEPTH bullets if DEPTH is positive or removing DEPTH
-bullets if DEPTH is negative (does nothing if DEPTH is 0)."
-  (interactive "nList Depth Change: ")
-  (save-excursion
-    (beginning-of-line)
-    (cond
-     ((> depth 0)
-      (let ((indent-str (concat (make-string depth ?*) " ")))
-        (if (re-search-forward "\\=\\([*#]+\\)" (line-end-position) t)
-            (setq indent-str (make-string depth (elt (substring (match-string 1) -1) 0))))
-        (insert-before-markers indent-str)))
-     ((< depth 0)
-      (let ((tmp-point (point))
-            (indent-str ""))
-        (if (re-search-forward "\\=\\([*#]+\\)" (line-end-position) t)
-            (progn 
-              (setq indent-str (match-string 1))
-              (setq indent-str
-                    (if (< (abs depth) (length indent-str))
-                        (substring indent-str 0 depth)
-                      ""))))
-        (delete-region tmp-point (point))
-        (insert-before-markers indent-str))))))
-
-(defsubst cf-region-is-active ()
-  "Return t when the region is active."
-  ;; The determination of region activeness is different in both Emacs and
-  ;; XEmacs.
-  (cond
-   ;; Emacs
-   ((boundp 'mark-active) mark-active)
-   ;; XEmacs
-   ((and (fboundp 'region-active-p)
-         (boundp 'zmacs-regions)
-         zmacs-regions)
-    (region-active-p))
-   ;; fallback; shouldn't get here
-   (t (mark t))))
-
-(defsubst cf-hard-newline ()
-  "Return newline string, including hard property if hard newlines are being
-used."
-  (if use-hard-newlines
-      (propertize "\n" 'hard 't)
-    "\n"))
-
-(defun cf-format-block-tag (tag-text tag-point)
-  "Formats a block tag with appropriate newlines based on the insertion
-point."
-  (concat
-   (if (equal (char-before tag-point) ?\n)
-       ""
-     (cf-hard-newline))
-   tag-text
-   (if (equal (char-after tag-point) ?\n)
-       ""
-     (cf-hard-newline))))
-
-(defun cf-wrap-text (pre-wrap-str &optional post-wrap-str are-block-tags)
-  "Wraps the current region (if active) or current word with PRE-WRAP-STR and
-POST-WRAP-STR.  If POST-WRAP-STR is nil, PRE-WRAP-STR is reused.  If
-ARE-BLOCK-TAGS is not nil, the wrap strings will be formatted using
-`cf-format-block-tag' before insertion."
-  (save-excursion
-    (let ((beg nil)
-          (end nil)
-          (wrap-str nil)
-          (end-marker (make-marker)))
-      (if (cf-region-is-active)
-          (progn
-            (setq beg (region-beginning))
-            (setq end (region-end))
-            (deactivate-mark))
-        (progn
-          (backward-word 1)
-          (setq beg (point))
-          (forward-word 1)
-          (setq end (point))))
-      (if are-block-tags
-          (setq pre-wrap-str (cf-format-block-tag pre-wrap-str beg)
-                post-wrap-str (cf-format-block-tag (or post-wrap-str 
-                                                       pre-wrap-str) end)))
-      (set-marker end-marker end)
-      (goto-char beg)
-      (insert-before-markers pre-wrap-str)
-      (goto-char end-marker)
-      (insert-before-markers (or post-wrap-str pre-wrap-str))
-      (set-marker end-marker nil))))
-
-(defun confluence-boldify-text ()
-  "Wraps the current region/word with *bold* marks."
-  (interactive)
-  (cf-wrap-text "*"))
-
-(defun confluence-italicize-text ()
-  "Wraps the current region/word with _italics_ marks."
-  (interactive)
-  (cf-wrap-text "_"))
-
-(defun confluence-strike-text ()
-  "Wraps the current region/word with -strikethrough- marks."
-  (interactive)
-  (cf-wrap-text "-"))
-
-(defun confluence-underline-text ()
-  "Wraps the current region/word with +underline+ marks."
-  (interactive)
-  (cf-wrap-text "+"))
-
-(defun confluence-superscript-text ()
-  "Wraps the current region/word with ^superscript^ marks."
-  (interactive)
-  (cf-wrap-text "^"))
-
-(defun confluence-subscript-text ()
-  "Wraps the current region/word with ~subscript~ marks."
-  (interactive)
-  (cf-wrap-text "~"))
-
-(defun confluence-cite-text ()
-  "Wraps the current region/word with ??citation?? marks."
-  (interactive)
-  (cf-wrap-text "??"))
-
-(defun confluence-linkify-text (&optional link-url)
-  "Wraps the current region/word as a [link]."
-  (interactive "MURL: ")
-  (cf-wrap-text "[" (concat (if (cf-string-notempty link-url)
-                                (concat "|" link-url)
-                              "") "]")))
-
-(defun confluence-codify-text (&optional arg)
-  "Wraps the current region/word as {{monospace}} if single-line, otherwise
-as a {code}code block{code}."
-  (interactive "P")
-  (let ((pre-str "{{")
-        (post-str "}}")
-        (are-block-tags nil))
-    (if (or arg
-            (and (cf-region-is-active)
-                 (save-excursion
-                   (let ((beg (region-beginning))
-                         (end (region-end))
-                         (found-newline nil))
-                     (goto-char beg)
-                     ;; search for a non-soft newline in the current region
-                     (while (and (search-forward "\n" end 'silent)
-                                 (setq found-newline t)
-                                 use-hard-newlines
-                                 (not (get-text-property (match-beginning 0)
-                                                         'hard))
-                                 (setq found-newline 'soft)))
-                     (eq found-newline t)))))
-        (setq pre-str "{code:}"
-              post-str "{code}"
-              are-block-tags t))
-    (cf-wrap-text pre-str post-str are-block-tags)))
-
-(defun confluence-linkify-anchor-text (&optional anchor-name)
-  "Wraps the current region/word as an anchor [link|#ANCHOR-NAME]."
-  (interactive)
-  (if (not anchor-name)
-      (let ((cur-anchors (cf-get-page-anchors)))
-        (setq anchor-name (cf-read-string-simple "Confluence Anchor Name: " 
-                                                 nil cur-anchors))))
-  (cf-wrap-text "[" (concat "|#" (or anchor-name "") "]")))
-
-(defun confluence-linkify-attachment-text (&optional file-name)
-  "Wraps the current region/word as an attachment [link|#FILE-NAME]."
-  (interactive)
-  (if (not file-name)
-      (let ((cur-attachments 
-             (if confluence-page-id
-                 (with-quiet-rpc
-                  (cf-result-to-completion-list
-                   (cf-rpc-get-attachments confluence-page-id) "fileName"))
-               nil)))
-        (setq file-name (cf-read-string-simple "Confluence attachment file name: " 'confluence-attachment-history cur-attachments))))
-  (cf-wrap-text "[" (concat "|^" (or file-name "") "]")))
-
-(defun confluence-embed-text ()
-  "Wraps the current region/word as an embedded content !link!."
-  (interactive)
-  (cf-wrap-text "!"))
-
-(defun confluence-insert-anchor (anchor-name)
-  "Inserts an {anchor}."
-  (interactive "MNew AnchorName: ")
-  (insert "{anchor:" anchor-name "}"))
-
-(defun confluence-insert-horizontal-rule ()
-  "Inserts horizontal rule."
-  (interactive)
-  (insert (cf-format-block-tag 
-           (concat (cf-hard-newline) "----" (cf-hard-newline)) 
-           (point))))
-
-(defvar confluence-format-prefix-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map "i" 'confluence-italicize-text)
-    (define-key map "c" 'confluence-codify-text)
-    (define-key map "b" 'confluence-boldify-text)
-    (define-key map "l" 'confluence-linkify-text)
-    (define-key map "u" 'confluence-underline-text)
-    (define-key map "a" 'confluence-linkify-anchor-text)
-    (define-key map "t" 'confluence-linkify-attachment-text)
-    (define-key map "A" 'confluence-insert-anchor)
-    (define-key map "e" 'confluence-embed-text)
-    (define-key map "h" 'confluence-insert-horizontal-rule)
-    (define-key map "s" 'confluence-superscript-text)
-    (define-key map "S" 'confluence-subscript-text)
-    (define-key map "C" 'confluence-cite-text)
-    (define-key map "x" 'confluence-strike-text)
-    map)
-  "Keybinding prefix map which can be bound for common formatting functions in
-confluence mode.")
 
 (defvar confluence-prefix-map
   (let ((map (make-sparse-keymap)))
@@ -2425,25 +1990,16 @@ confluence mode.")
 mode.")
 
 
-(define-derived-mode confluence-mode text-mode "Confluence"
+(define-derived-mode confluence-mode confluence-edit-mode "Confluence"
   "Set major mode for editing Confluence Wiki pages."
-  (turn-off-auto-fill)
   (make-local-variable 'revert-buffer-function)
   (setq revert-buffer-function 'cf-revert-page)
   ;; FIXME, should we support local backup files?
   (make-local-variable 'make-backup-files)
   (setq make-backup-files nil)
-  (make-local-variable 'words-include-escapes)
-  (setq words-include-escapes t)
   (add-hook 'write-contents-hooks 'cf-save-page)
   ;; we set this to some nonsense so save-buffer works
   (setq buffer-file-name (expand-file-name (concat "." (buffer-name)) "~/"))
-  (set-syntax-table (make-syntax-table (syntax-table)))
-  (modify-syntax-entry ?\\ "\\")
-  (setq font-lock-defaults
-        '((confluence-font-lock-keywords confluence-font-lock-keywords-1
-                                         confluence-font-lock-keywords-2)
-          nil nil nil nil (font-lock-multiline . t)))
 )
 
 (define-derived-mode confluence-search-mode confluence-mode "ConfluenceSearch"
