@@ -6,7 +6,7 @@ Status: stable unsafe
 Compat:
 Maintainer: Jari Aalto <jari.aalto@cante.net>
 Bugs:
-Upstream: Kyle Burton <kyle.burton@gmail.com>
+Upstream: Kyle Burton <kyle.burton@gmail.com>, <confluence-el@googlecode.com>
 Upstream-Bugs: http://code.google.com/p/confluence-el/issues/list
 Vcs-Type: svn
 Vcs-Url: http://confluence-el.googlecode.com/svn/trunk
@@ -17,6 +17,11 @@ Vcs-Password:
 Homepage: http://code.google.com/p/confluence-el
 Wiki: http://www.emacswiki.org/emacs/ConfluenceMode
 Commentary: confluence.el
+X-Development:
+  2011-04-11 the unsafe namespace issue was reported to
+  http://code.google.com/p/confluence-el/issues/detail?id=24
+  The bug was closed 2011-04-11. Code still does not use one
+  common namespace, so 'unsafe' label is kept in effect.
 Description: mode for interacting with confluence wiki
  Confluence is a commercial Wiki engine and this package
  offer remote editing of its pages.
