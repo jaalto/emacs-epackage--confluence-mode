@@ -23,8 +23,9 @@ X-Development:
   The bug was closed 2011-04-11. Code still does not use one
   common namespace, so 'unsafe' label is kept in effect.
 Description: mode for interacting with confluence wiki
- Confluence is a commercial Wiki engine and this package
- offer remote editing of its pages.
+ Confluence is a commercial Wiki engine and this package offer remote
+ editing of its pages.
  .
- Use M-x confluence-get-page and enter the path to the confluence
- page. Saving with C-x C-s will push changes back to Wiki.
+ After installation (see INSTALL in source file), you can use M-x
+ confluence-get-page and enter the path to the confluence page. Save pages
+ with C-x C-s to push changes back to Wiki.
