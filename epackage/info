@@ -6,7 +6,7 @@ Status: stable unsafe
 Compat:
 Maintainer: Jari Aalto <jari.aalto@cante.net>
 Bugs:
-Upstream: Kyle Burton <kyle.burton@gmail.com>
+Upstream: Kyle Burton <kyle.burton@gmail.com>, <confluence-el@googlecode.com>
 Upstream-Bugs: http://code.google.com/p/confluence-el/issues/list
 Vcs-Type: svn
 Vcs-Url: http://confluence-el.googlecode.com/svn/trunk
