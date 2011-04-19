@@ -22,4 +22,4 @@ the given SPACE-NAME.
 
 ;;;***
 
-(provide 'confluence-0loaddefs)
+(provide 'confluence-mode-0loaddefs)
