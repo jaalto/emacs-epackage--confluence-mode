@@ -1,2 +1,2 @@
-(require 'confluence-autoloads)
-(provide 'confluence-install)
+(require 'confluence-mode-autoloads)
+(provide 'confluence-mode-install)
