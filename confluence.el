@@ -164,7 +164,9 @@
 
 (defgroup confluence nil
   "Support for editing confluence wikis."
-  :prefix "confluence-")
+  :tag "Confluence"
+  :prefix "confluence-"
+  :group 'hypermedia)
 
 (defcustom confluence-url nil
   "Url of the confluence service to interact with.  This must
@@ -187,7 +189,7 @@ http://intranet/confluence/rpc/xmlrpc.  Setting this in your
   :group 'confluence
   :type 'integer)
 
-(defcustom confluence-prompt-page-function 'cf-prompt-page-by-component
+(defcustom confluence-prompt-page-function 'confluence-prompt-page-by-component
   "The function to used to prompt for pages when opening new pages."
   :group 'confluence
   :type 'function)
@@ -343,16 +345,16 @@ Possible values:
   "Logs into the current confluence url, if necessary.  With ARG, forces
 re-login to the current url."
   (interactive "P")
-  (let ((confluence-input-url (cf-get-url)))
+  (let ((confluence-input-url (cfln-get-url)))
     (if arg
-        (cf-set-struct-value 'confluence-login-token-alist
+        (cfln-set-struct-value 'confluence-login-token-alist
                              confluence-input-url nil))
     ;; we may need to prompt for a password while already at the minibuffer
     ;; prompt, so enable recursive minibuffers
     (let ((enable-recursive-minibuffers t)
           (credentials (and confluence-save-credentials
-                            (cf-get-struct-value confluence-login-credential-alist confluence-input-url)))
-          (cur-token (cf-get-struct-value confluence-login-token-alist
+                            (cfln-get-struct-value confluence-login-credential-alist confluence-input-url)))
+          (cur-token (cfln-get-struct-value confluence-login-token-alist
                                           confluence-input-url))
           (username nil)
           (password nil))
@@ -360,7 +362,7 @@ re-login to the current url."
         (condition-case err
             (progn
               (setq cur-token
-                    (cf-rpc-execute-internal 
+                    (cfln-rpc-execute-internal 
                      'confluence1.login
                      (setq username
                            (or (car-safe credentials)
@@ -369,10 +371,10 @@ re-login to the current url."
                      (setq password
                            (or (cdr-safe credentials)
                                (read-passwd "Confluence Password: ")))))
-              (cf-set-struct-value 'confluence-login-token-alist
+              (cfln-set-struct-value 'confluence-login-token-alist
                                    confluence-input-url cur-token)
               (if confluence-save-credentials 
-                  (cf-set-struct-value 'confluence-login-credential-alist
+                  (cfln-set-struct-value 'confluence-login-credential-alist
                                        confluence-input-url (cons username password))))
           (error
            (progn
@@ -391,8 +393,8 @@ saved off into a stack (`confluence-tag-stack') that you can then
 pop back out of to return back through your navigation path (with
 M-* `confluence-pop-tag-stack')."
   (interactive)
-  (cf-prompt-page-info nil 'page-name 'space-name)
-  (cf-show-page (cf-rpc-get-page-by-name space-name page-name) 
+  (cfln-prompt-page-info nil 'page-name 'space-name)
+  (cfln-show-page (cfln-rpc-get-page-by-name space-name page-name) 
                 anchor-name))
 
 (defun confluence-get-page-with-url (&optional arg)
@@ -434,7 +436,7 @@ confluence page.  Analogous to M-. (`find-tag').  Any ARG is passed to
                   (setq url (concat "^" url)))
               (if confluence-browse-function
                   (funcall confluence-browse-function url)
-                (cf-simple-browse-function url)))))
+                (cfln-simple-browse-function url)))))
       (confluence-get-page-with-url arg))))
 
 (defun confluence-get-parent-page ()
@@ -442,10 +444,10 @@ confluence page.  Analogous to M-. (`find-tag').  Any ARG is passed to
 confluence page into a buffer (if not already loaded) and
 switches to it."
   (interactive)
-  (let ((parent-page-id (cf-get-struct-value confluence-page-struct "parentId" "0")))
+  (let ((parent-page-id (cfln-get-struct-value confluence-page-struct "parentId" "0")))
     (if (equal parent-page-id "0")
         (message "Current page has no parent page")
-      (cf-show-page (cf-rpc-get-page-by-id parent-page-id)))))
+      (cfln-show-page (cfln-rpc-get-page-by-id parent-page-id)))))
 
 (defun confluence-get-attachment (&optional page-name space-name file-name 
                                             page-id)
@@ -453,32 +455,32 @@ switches to it."
 buffer for viewing or downloading it to a local file."
   (interactive)
   ;; get page and space names if not given
-  (cf-prompt-page-info "Attachment " 'page-name 'space-name
-                       (cf-get-struct-value confluence-page-struct "title"))
+  (cfln-prompt-page-info "Attachment " 'page-name 'space-name
+                       (cfln-get-struct-value confluence-page-struct "title"))
   ;; find page-id if not given
   (if (not page-id)
       (with-quiet-rpc
-        (setq page-id (cf-get-struct-value (cf-rpc-get-page-by-name
+        (setq page-id (cfln-get-struct-value (cfln-rpc-get-page-by-name
                                             space-name page-name) "id"))))
   ;; get file name if not given
   (if (not file-name)
       (let ((cur-attachments (with-quiet-rpc
-                              (cf-result-to-completion-list
-                               (cf-rpc-get-attachments page-id) "fileName"))))
+                              (cfln-result-to-completion-list
+                               (cfln-rpc-get-attachments page-id) "fileName"))))
         (if (= (length cur-attachments) 0)
             (message "Current page has no attachments...")
-          (setq file-name (cf-read-string-simple "Confluence attachment file name: " 'confluence-attachment-history cur-attachments t)))))
+          (setq file-name (cfln-read-string-simple "Confluence attachment file name: " 'confluence-attachment-history cur-attachments t)))))
 
-  (if (and (cf-string-notempty page-id)
-           (cf-string-notempty file-name))
+  (if (and (cfln-string-notempty page-id)
+           (cfln-string-notempty file-name))
       (let ((save-only-file-name nil))
         ;; determine if caller wants to view the file or merely download it
         (if (equal "d"
-                   (cf-read-char "(v)iew confluence attachment or (d)ownload only [v]: " "[vd]" "v"))
+                   (cfln-read-char "(v)iew confluence attachment or (d)ownload only [v]: " "[vd]" "v"))
             (setq save-only-file-name (expand-file-name 
                                        (read-file-name "Download file name: " 
                                                        nil file-name))))
-        (cf-show-attachment page-name space-name file-name page-id 
+        (cfln-show-attachment page-name space-name file-name page-id 
                            save-only-file-name))))
 
 (defun confluence-get-attachment-with-url (&optional arg)
@@ -493,12 +495,12 @@ attachment call (based on `confluence-default-space-alist')."
   "Moves to the given ANCHOR-NAME in the current confluence buffer."
   (interactive)
   (if (not anchor-name)
-      (let ((cur-anchors (cf-get-page-anchors)))
+      (let ((cur-anchors (cfln-get-page-anchors)))
             (if (= (length cur-anchors) 0)
                 (message "Current page has no anchors...")
-              (setq anchor-name (cf-read-string-simple "Confluence Anchor Name: " 
+              (setq anchor-name (cfln-read-string-simple "Confluence Anchor Name: " 
                                                        nil cur-anchors t)))))
-  (if (cf-string-notempty anchor-name)
+  (if (cfln-string-notempty anchor-name)
       (let ((anchor-position nil))
         (save-excursion
           (goto-char (point-min))
@@ -523,14 +525,14 @@ attachment call (based on `confluence-default-space-alist')."
   "Creates a new confluence page for the given SPACE-NAME and
 PAGE-NAME and loads it into a new buffer."
   (interactive)
-  (cf-prompt-page-info "New " 'page-name 'space-name)
+  (cfln-prompt-page-info "New " 'page-name 'space-name)
   (let ((new-page (list (cons "content" "")))
-        (parent-page-id (cf-get-parent-page-id t space-name)))
-    (cf-set-struct-value 'new-page "title" page-name)
-    (cf-set-struct-value 'new-page "space" space-name)
+        (parent-page-id (cfln-get-parent-page-id t space-name)))
+    (cfln-set-struct-value 'new-page "title" page-name)
+    (cfln-set-struct-value 'new-page "space" space-name)
     (if parent-page-id
-        (cf-set-struct-value 'new-page "parentId" parent-page-id))
-    (cf-show-page (cf-rpc-save-page new-page))))
+        (cfln-set-struct-value 'new-page "parentId" parent-page-id))
+    (cfln-show-page (cfln-rpc-save-page new-page))))
 
 (defun confluence-create-page-with-url (&optional arg)
   "With ARG, prompts for the confluence url to use for the create page call
@@ -546,7 +548,7 @@ PAGE-NAME and loads it into a new buffer."
   (interactive "i\nP")
   (if (not rel-type)
       (setq rel-type (intern
-                      (cf-read-string-simple
+                      (cfln-read-string-simple
                        (format "Confluence Relation Type [%s]: "
                                (if arg "ancestor" "child")) 
                        nil
@@ -554,12 +556,12 @@ PAGE-NAME and loads it into a new buffer."
                          ("parent" t) ("descendent" t)) 
                        t nil
                        (if arg "ancestor" "child")))))
-  (let ((space-name (cf-get-struct-value confluence-page-struct "space"))
-        (page-name (cf-get-struct-value confluence-page-struct "title"))
+  (let ((space-name (cfln-get-struct-value confluence-page-struct "space"))
+        (page-name (cfln-get-struct-value confluence-page-struct "title"))
         (page-id confluence-page-id)
         (rel-page-names nil))
-    (if (and (cf-string-notempty space-name)
-             (cf-string-notempty page-name)
+    (if (and (cfln-string-notempty space-name)
+             (cfln-string-notempty page-name)
              page-id)
         (cond
          ;; show page attachment
@@ -571,17 +573,17 @@ PAGE-NAME and loads it into a new buffer."
          (t
           (setq rel-page-names
                 (with-quiet-rpc
-                 (cf-result-to-completion-list
+                 (cfln-result-to-completion-list
                   (cond
                    ;; retrieve available ancestors
                    ((eq rel-type 'ancestor)
-                    (cf-rpc-get-page-ancestors page-id))
+                    (cfln-rpc-get-page-ancestors page-id))
                    ;; retrieve available children
                    ((eq rel-type 'child)
-                    (cf-rpc-get-page-children page-id))
+                    (cfln-rpc-get-page-children page-id))
                    ;; retrieve available descendents
                    ((eq rel-type 'descendent)
-                    (cf-rpc-get-page-descendents page-id))
+                    (cfln-rpc-get-page-descendents page-id))
                    (t 
                     (error "Unknown relationship type %s" rel-type)))
                   "title")))
@@ -590,21 +592,21 @@ PAGE-NAME and loads it into a new buffer."
                        rel-type)
             ;; prompt for actual related page to load
             (confluence-get-page
-             (cf-read-string nil
+             (cfln-read-string nil
                              "Confluence Page Name: "
                              'confluence-page-history 
-                             (cons space-name (cf-get-url))
+                             (cons space-name (cfln-get-url))
                              rel-page-names t)
              space-name)))))))
 
 (defun confluence-browse-page ()
   "Runs `browse-url' with the url of the current confluence page."
   (interactive)
-  (let ((url (cf-get-struct-value confluence-page-struct "url")))
-    (if (cf-string-notempty url)
+  (let ((url (cfln-get-struct-value confluence-page-struct "url")))
+    (if (cfln-string-notempty url)
         (browse-url url))))
 
-(defmacro cf-destructure-tags-stack-entry (entry &rest body)
+(defmacro cfln-destructure-tags-stack-entry (entry &rest body)
   "Destructure a tags-stack tuple.  NB this is not a hygenic
 macro, it intentionally binds named variables that match the
 structure of the stack entry.  The structure and the variable
@@ -615,7 +617,7 @@ bindings are:
 
 old-point is the point on the page which was pushed.  The 
 preceding list of info is the laod-info described in 
-`cf-destructure-load-info'.
+`cfln-destructure-load-info'.
 "
   `(destructuring-bind
        ((page-type confluence-input-url page-id-or-query 
@@ -624,7 +626,7 @@ preceding list of info is the laod-info described in
        ,entry
      ,@body))
 
-(defmacro cf-destructure-load-info (load-info &rest body)
+(defmacro cfln-destructure-load-info (load-info &rest body)
   "Destructure a load-info tuple.  NB this is not a hygenic
 macro, it intentionally binds named variables that match the
 structure of the stack entry.  The structure and the variable
@@ -655,20 +657,20 @@ the tags stack."
   (if (null confluence-tag-stack)
       (message "Stack is empty...")
     (let ((confluence-no-push t))
-      (cf-destructure-tags-stack-entry
+      (cfln-destructure-tags-stack-entry
        (pop confluence-tag-stack)
        (cond 
         ;; load a normal page by id
         ((eq page-type 'page)
-         (cf-show-page (cf-rpc-get-page-by-id page-id-or-query)))
+         (cfln-show-page (cfln-rpc-get-page-by-id page-id-or-query)))
         ;; run a previous search query
         ((eq page-type 'search)
-         (cf-show-search-results 
-          (cf-rpc-search page-id-or-query space-name)
+         (cfln-show-search-results 
+          (cfln-rpc-search page-id-or-query space-name)
           load-info))
         ;; load an attachment
         ((eq page-type 'attachment)
-         (cf-show-attachment page-name space-name file-name page-id-or-query nil))
+         (cfln-show-attachment page-name space-name file-name page-id-or-query nil))
         (t
          (error "Invalid stack info")))
        (goto-char old-point)))))
@@ -684,35 +686,35 @@ the tags stack."
 latest version of that page saved in confluence with intent of saving the
 result as the latest version of the page."
   (interactive)
-  (cf-ediff-current-page t))
+  (cfln-ediff-current-page t))
 
 (defun confluence-ediff-current-page ()
   "Starts an ediff session diffing the current confluence page against the
 latest version of that page saved in confluence."
   (interactive)
-  (cf-ediff-current-page nil))
+  (cfln-ediff-current-page nil))
 
 (defun confluence-reparent-page ()
   "Changes the parent of the current confluence page."
   (interactive)
-  (let ((parent-page-id (cf-get-parent-page-id nil)))
+  (let ((parent-page-id (cfln-get-parent-page-id nil)))
     (if (and parent-page-id
-             (not (equal parent-page-id (cf-get-struct-value confluence-page-struct "parentId"))))
+             (not (equal parent-page-id (cfln-get-struct-value confluence-page-struct "parentId"))))
         (progn
-          (cf-set-struct-value 'confluence-page-struct "parentId" parent-page-id)
+          (cfln-set-struct-value 'confluence-page-struct "parentId" parent-page-id)
           (set-buffer-modified-p t)))))
 
 (defun confluence-rename-page ()
   "Changes the name (title) of the current confluence page."
   (interactive)
-  (let ((page-name (cf-prompt-page-name 
-                    (cf-get-struct-value confluence-page-struct "space") 
+  (let ((page-name (cfln-prompt-page-name 
+                    (cfln-get-struct-value confluence-page-struct "space") 
                     "New ")))
-    (if (and (cf-string-notempty page-name)
-             (not (equal page-name (cf-get-struct-value confluence-page-struct "title"))))
+    (if (and (cfln-string-notempty page-name)
+             (not (equal page-name (cfln-get-struct-value confluence-page-struct "title"))))
         (progn
-          (cf-set-struct-value 'confluence-page-struct "title" page-name)
-          (cf-update-buffer-name)
+          (cfln-set-struct-value 'confluence-page-struct "title" page-name)
+          (cfln-update-buffer-name)
           (set-buffer-modified-p t)))))
 
 (defun confluence-add-label (&optional label-name)
@@ -722,9 +724,9 @@ latest version of that page saved in confluence."
       (progn
         (if (not label-name)
             (setq label-name
-                  (cf-read-string-simple "New Confluence Label: " 'confluence-label-history 'cf-complete-recent-label-name)))
-        (if (cf-string-notempty label-name)
-            (cf-rpc-add-label label-name confluence-page-id)))))
+                  (cfln-read-string-simple "New Confluence Label: " 'confluence-label-history 'cfln-complete-recent-label-name)))
+        (if (cfln-string-notempty label-name)
+            (cfln-rpc-add-label label-name confluence-page-id)))))
 
 (defun confluence-remove-label (&optional label-name)
   "Removes the label with the given name to the current confluence page."
@@ -733,14 +735,14 @@ latest version of that page saved in confluence."
       (progn
         (if (not label-name)
           (let ((cur-labels (with-quiet-rpc
-                             (cf-result-to-completion-list (cf-rpc-get-labels confluence-page-id) "name"))))
+                             (cfln-result-to-completion-list (cfln-rpc-get-labels confluence-page-id) "name"))))
             (if (= (length cur-labels) 0)
                 (message "Current page has no labels...")
               (progn
                 (or label-name
-                    (setq label-name (cf-read-string-simple "Old Confluence Label: " 'confluence-label-history cur-labels t)))))))
-        (if (cf-string-notempty label-name)
-            (cf-rpc-remove-label label-name confluence-page-id)))))
+                    (setq label-name (cfln-read-string-simple "Old Confluence Label: " 'confluence-label-history cur-labels t)))))))
+        (if (cfln-string-notempty label-name)
+            (cfln-rpc-remove-label label-name confluence-page-id)))))
 
 (defun confluence-get-labels ()
   "Shows the labels of the current page."
@@ -748,8 +750,8 @@ latest version of that page saved in confluence."
   (if confluence-page-id
       (let ((cur-labels (mapcar
                          '(lambda (el)
-                            (cf-get-struct-value el "name"))
-                         (cf-rpc-get-labels confluence-page-id))))
+                            (cfln-get-struct-value el "name"))
+                         (cfln-rpc-get-labels confluence-page-id))))
         (if (= (length cur-labels) 0)
             (message "Current page has no labels...")
           (message "Current Confluence Labels: %s" cur-labels)))))
@@ -763,7 +765,7 @@ latest version of that page saved in confluence."
         (if (not confluence-page-id)
             (error "Could not delete Confluence page %s, missing page id"
                    (buffer-name)))
-        (cf-rpc-execute 'confluence1.removePage confluence-page-id)
+        (cfln-rpc-execute 'confluence1.removePage confluence-page-id)
         ;; remove this page from the tag stack
         (while (assoc confluence-load-info confluence-tag-stack)
           (setq confluence-tag-stack
@@ -795,7 +797,7 @@ on `confluence-default-space-alist')."
 the given SPACE-NAME."
   (interactive)
   (or query-type
-      (setq query-type (cf-read-string-simple "Confluence Search Type [content]: "
+      (setq query-type (cfln-read-string-simple "Confluence Search Type [content]: "
                                         nil confluence-search-types
                                         t nil "content")))
   (if (stringp query-type)
@@ -813,20 +815,20 @@ the given SPACE-NAME."
         (setq query (read-string (concat "Confluence " query-prompt-prefix "Query: ") nil 
                                  'confluence-search-history nil t)))
     (setq query (concat query-prefix query))
-    (cf-show-search-results (cf-rpc-search query space-name)
-                            (list 'search (cf-get-url) query space-name))))
+    (cfln-show-search-results (cfln-rpc-search query space-name)
+                            (list 'search (cfln-get-url) query space-name))))
 
 (defun confluence-search-by-type-in-space (&optional query-type query)
   "Runs a confluence search by type (content, title, label) for QUERY, restricting the results to the space of
 the current buffer."
   (interactive)
-  (confluence-search-by-type query-type query (cf-get-struct-value confluence-page-struct "space")))
+  (confluence-search-by-type query-type query (cfln-get-struct-value confluence-page-struct "space")))
 
 (defun confluence-search-by-type-with-url (&optional arg query-type)
   "With ARG, prompts for the confluence url to use for the search call (based
 on `confluence-default-space-alist')."
   (interactive "P")
-  (let ((confluence-input-url (and arg (cf-prompt-url nil))))
+  (let ((confluence-input-url (and arg (cfln-prompt-url nil))))
     (confluence-search-by-type query-type)))
 
 (defun confluence-preview ()
@@ -850,7 +852,7 @@ on `confluence-default-space-alist')."
                     (run-hooks 'confluence-before-save-hook)
                     (setq source-content (buffer-string))))))
         ;; render the current page, optionally with locally modified content
-        (setq rendered-content (cf-rpc-render-page (cf-get-struct-value confluence-page-struct "space")
+        (setq rendered-content (cfln-rpc-render-page (cfln-get-struct-value confluence-page-struct "space")
                                                    confluence-page-id source-content))
         ;; shove the html into a temp buffer
         (with-current-buffer render-buf
@@ -873,7 +875,7 @@ on `confluence-default-space-alist')."
 (defun confluence-get-info ()
   "Gets information on confluence."
   (interactive)
-  (message "Confluence Server Info: %s" (cf-get-server-info)))
+  (message "Confluence Server Info: %s" (cfln-get-server-info)))
 
 (defun confluence-get-info-with-url (&optional arg)
   "With ARG, prompts for the confluence url to use for the get
@@ -883,35 +885,35 @@ info call (based on `confluence-default-space-alist')."
         (confluence-input-url nil))
     (confluence-get-info)))
 
-(defun cf-rpc-execute (method-name &rest params)
+(defun cfln-rpc-execute (method-name &rest params)
   "Executes a confluence rpc call, managing the login token and logging in if
 necessary."
-  (apply 'cf-rpc-execute-async nil method-name params))
+  (apply 'cfln-rpc-execute-async nil method-name params))
 
-(defun cf-rpc-execute-async (async-callback method-name &rest params)
+(defun cfln-rpc-execute-async (async-callback method-name &rest params)
   "Executes a confluence rpc call, managing the login token and logging in if
 necessary."
   (condition-case err
-      (apply 'cf-rpc-execute-internal-async async-callback method-name (confluence-login) params)
+      (apply 'cfln-rpc-execute-internal-async async-callback method-name (confluence-login) params)
     (error
      ;; if we get a fault with the given keywords, try the call again after a
      ;; re-login (we force re-login), otherwise, just rethrow the error
      (if (and xml-rpc-fault-string
               (string-match "\\<authenticated\\>\\|\\<expired\\>" xml-rpc-fault-string))
-         (apply 'cf-rpc-execute-internal-async async-callback method-name (confluence-login t) params)
+         (apply 'cfln-rpc-execute-internal-async async-callback method-name (confluence-login t) params)
        (error (error-message-string err))))))
 
-(defun cf-rpc-execute-internal (method-name &rest params)
+(defun cfln-rpc-execute-internal (method-name &rest params)
   "Executes a raw confluence rpc call.  Handles all necessary encoding/decoding of strings."
-  (apply 'cf-rpc-execute-internal-async nil method-name params))
+  (apply 'cfln-rpc-execute-internal-async nil method-name params))
 
-(defun cf-rpc-execute-internal-async (async-callback method-name &rest params)
+(defun cfln-rpc-execute-internal-async (async-callback method-name &rest params)
   "Executes a raw confluence rpc call.  Handles all necessary encoding/decoding of strings."
   (setq xml-rpc-fault-string nil)
   (setq xml-rpc-fault-code   nil)
   (let* ((url-http-version "1.0")  ;; this make the xml-rpc parser happy
          (url-http-attempt-keepalives nil)
-         (page-url (cf-get-url))   ;; figure out which url to use
+         (page-url (cfln-get-url))   ;; figure out which url to use
          (confluence-do-coding t))
     (if (not page-url)
         (error "No confluence url configured"))
@@ -919,7 +921,7 @@ necessary."
         (let ((rpc-result 
                (if async-callback
                    (apply 'xml-rpc-method-call-async async-callback page-url method-name params)
-               (cf-maybe-url-decode-entities-in-value (apply 'xml-rpc-method-call page-url method-name params)))
+               (cfln-maybe-url-decode-entities-in-value (apply 'xml-rpc-method-call page-url method-name params)))
                ))
           ;; clear any url messages before returning
           (message nil)
@@ -928,92 +930,92 @@ necessary."
        ;; decode the fault string and the error message (often includes the
        ;; fault string) and then rethrow the error
        (if xml-rpc-fault-string
-           (setq xml-rpc-fault-string (cf-maybe-url-decode-entities-in-value 
+           (setq xml-rpc-fault-string (cfln-maybe-url-decode-entities-in-value 
                                        xml-rpc-fault-string)))
-       (error (cf-maybe-url-decode-entities-in-value (error-message-string err)))))))
+       (error (cfln-maybe-url-decode-entities-in-value (error-message-string err)))))))
 
-(defun cf-rpc-get-page-by-name (space-name page-name)
+(defun cfln-rpc-get-page-by-name (space-name page-name)
   "Executes a confluence 'getPage' rpc call with space and page names."
-  (cf-rpc-execute 'confluence1.getPage space-name page-name))
+  (cfln-rpc-execute 'confluence1.getPage space-name page-name))
 
-(defun cf-rpc-get-page-by-id (page-id)
+(defun cfln-rpc-get-page-by-id (page-id)
   "Executes a confluence 'getPage' rpc call with a page id."
-  (cf-rpc-execute 'confluence1.getPage page-id))
+  (cfln-rpc-execute 'confluence1.getPage page-id))
 
-(defun cf-rpc-search (query space-name &optional max-results)
+(defun cfln-rpc-search (query space-name &optional max-results)
   "Executes a confluence 'search' rpc call, optionally restricted by the given
 SPACE-NAME."
   (let ((params (list (cons "type" "page"))))
-    (if (cf-string-notempty space-name)
-        (cf-set-struct-value 'params "spaceKey" space-name))
-    (cf-rpc-execute 'confluence1.search query
+    (if (cfln-string-notempty space-name)
+        (cfln-set-struct-value 'params "spaceKey" space-name))
+    (cfln-rpc-execute 'confluence1.search query
                     params (or max-results confluence-search-max-results))))
 
-(defun cf-rpc-save-page (page-struct &optional comment minor-edit)
+(defun cfln-rpc-save-page (page-struct &optional comment minor-edit)
   "Executes a confluence 'storePage' rpc call with a page struct (or
 'updatePage' if comment or minorEdit flag are specified)."
-  (if (or (cf-string-notempty comment) minor-edit)
+  (if (or (cfln-string-notempty comment) minor-edit)
       (let ((page-options (list (cons "versionComment" (or comment "")) 
                                 (cons "minorEdit" minor-edit))))
-        (cf-rpc-execute 'confluence1.updatePage page-struct page-options))
-    (cf-rpc-execute 'confluence1.storePage page-struct)))
+        (cfln-rpc-execute 'confluence1.updatePage page-struct page-options))
+    (cfln-rpc-execute 'confluence1.storePage page-struct)))
 
-(defun cf-rpc-get-spaces ()
+(defun cfln-rpc-get-spaces ()
   "Executes a confluence 'getSpaces' rpc call."
-  (cf-rpc-execute 'confluence1.getSpaces))
+  (cfln-rpc-execute 'confluence1.getSpaces))
 
-(defun cf-rpc-get-space (space-name)
+(defun cfln-rpc-get-space (space-name)
   "Executes a confluence 'getSpace' rpc call with space name."
-  (cf-rpc-execute 'confluence1.getSpace space-name))
+  (cfln-rpc-execute 'confluence1.getSpace space-name))
 
-(defun cf-rpc-get-labels (obj-id)
+(defun cfln-rpc-get-labels (obj-id)
   "Executes a confluence 'getLabelsById' rpc call with object id."
-  (cf-rpc-execute 'confluence1.getLabelsById obj-id))
+  (cfln-rpc-execute 'confluence1.getLabelsById obj-id))
 
-(defun cf-rpc-get-recent-labels (max-results)
+(defun cfln-rpc-get-recent-labels (max-results)
   "Executes a confluence 'getRecentlyUsedLabels' rpc call with the given max results."
-  (cf-rpc-execute 'confluence1.getRecentlyUsedLabels max-results))
+  (cfln-rpc-execute 'confluence1.getRecentlyUsedLabels max-results))
 
-(defun cf-rpc-add-label (label-name obj-id)
+(defun cfln-rpc-add-label (label-name obj-id)
   "Executes a confluence 'addLabelByName' rpc call with label name and object id."
-  (cf-rpc-execute 'confluence1.addLabelByName label-name obj-id))
+  (cfln-rpc-execute 'confluence1.addLabelByName label-name obj-id))
 
-(defun cf-rpc-remove-label (label-name obj-id)
+(defun cfln-rpc-remove-label (label-name obj-id)
   "Executes a confluence 'removeLabelByName' rpc call with label name and object id."
-  (cf-rpc-execute 'confluence1.removeLabelByName label-name obj-id))
+  (cfln-rpc-execute 'confluence1.removeLabelByName label-name obj-id))
 
-(defun cf-rpc-render-page (space-name page-id &optional content)
+(defun cfln-rpc-render-page (space-name page-id &optional content)
   "Executes a confluence 'renderContent' rpc call with space and page id and optional content."
-  (cf-rpc-execute 'confluence1.renderContent space-name page-id (or content "")))
+  (cfln-rpc-execute 'confluence1.renderContent space-name page-id (or content "")))
 
-(defun cf-rpc-get-attachments (page-id)
+(defun cfln-rpc-get-attachments (page-id)
   "Executes a confluence 'getAttachments' rpc call with page id."
-  (cf-rpc-execute 'confluence1.getAttachments page-id))
+  (cfln-rpc-execute 'confluence1.getAttachments page-id))
 
-(defun cf-rpc-get-attachment (page-id file-name &optional version)
+(defun cfln-rpc-get-attachment (page-id file-name &optional version)
   "Executes a confluence 'getAttachment' rpc call with page id, file name and
 optional version number."
   ;; "0" gets the latest version
-  (cf-rpc-execute 'confluence1.getAttachment page-id file-name 
+  (cfln-rpc-execute 'confluence1.getAttachment page-id file-name 
                   (or version "0")))
 
-(defun cf-rpc-get-page-children (page-id)
+(defun cfln-rpc-get-page-children (page-id)
   "Executes a confluence 'getChildren' rpc call with page id."
-  (cf-rpc-execute 'confluence1.getChildren page-id))
+  (cfln-rpc-execute 'confluence1.getChildren page-id))
 
-(defun cf-rpc-get-page-ancestors (page-id)
+(defun cfln-rpc-get-page-ancestors (page-id)
   "Executes a confluence 'getAncestors' rpc call with page id."
-  (cf-rpc-execute 'confluence1.getAncestors page-id))
+  (cfln-rpc-execute 'confluence1.getAncestors page-id))
 
-(defun cf-rpc-get-page-descendents (page-id)
+(defun cfln-rpc-get-page-descendents (page-id)
   "Executes a confluence 'getDescendents' rpc call with page id."
-  (cf-rpc-execute 'confluence1.getDescendents page-id))
+  (cfln-rpc-execute 'confluence1.getDescendents page-id))
 
-(defun cf-rpc-get-server-info ()
+(defun cfln-rpc-get-server-info ()
   "Executes a confluence 'getServerInfo' rpc call."
-  (cf-rpc-execute 'confluence1.getServerInfo))
+  (cfln-rpc-execute 'confluence1.getServerInfo))
 
-(defun cf-ediff-current-page (update-cur-version)
+(defun cfln-ediff-current-page (update-cur-version)
   "Starts an ediff session for the current confluence page, optionally
 updating the saved metadata to the latest version."
   (if (not confluence-page-id)
@@ -1021,23 +1023,23 @@ updating the saved metadata to the latest version."
              (buffer-name)))
   (let ((rev-buf)
         (cur-buf (current-buffer))
-        (rev-page (cf-rpc-get-page-by-id confluence-page-id)))
+        (rev-page (cfln-rpc-get-page-by-id confluence-page-id)))
     (setq rev-buf
-          (get-buffer-create (format "%s.~%s~" (buffer-name cur-buf) (cf-get-struct-value rev-page "version" 0))))
+          (get-buffer-create (format "%s.~%s~" (buffer-name cur-buf) (cfln-get-struct-value rev-page "version" 0))))
     ;; create read-only temp buffer w/ the latest page data
     (with-current-buffer rev-buf
-      (cf-insert-page rev-page)
+      (cfln-insert-page rev-page)
       (toggle-read-only 1))
     ;; optionally update the metadata in the current buffer (and update the
     ;; buffer name in case the page title changed)
     (if update-cur-version
         (progn
           (setq confluence-page-struct 
-                (cf-set-struct-value-copy rev-page "content" ""))
-          (cf-update-buffer-name)))
+                (cfln-set-struct-value-copy rev-page "content" ""))
+          (cfln-update-buffer-name)))
     (ediff-buffers cur-buf rev-buf nil 'confluence-diff)))
 
-(defun cf-save-page ()
+(defun cfln-save-page ()
   "Saves the current confluence page and updates the buffer with the latest
 page."
   (if (not confluence-page-id)
@@ -1045,33 +1047,33 @@ page."
              (buffer-name)))
   (let* ((minor-edit nil)
          (comment nil))
-    (if (cf-is-version-at-least 2 10)
+    (if (cfln-is-version-at-least 2 10)
         (progn
           ;; only ask for these values if the server API supports sending them
-          (setq minor-edit (cf-save-is-minor-edit))
-          (setq comment (cf-save-get-comment minor-edit))))
+          (setq minor-edit (cfln-save-is-minor-edit))
+          (setq comment (cfln-save-get-comment minor-edit))))
     (widen)
     (run-hooks 'confluence-before-save-hook)
-    (cf-insert-page (cf-rpc-save-page 
-                     (cf-set-struct-value-copy confluence-page-struct 
+    (cfln-insert-page (cfln-rpc-save-page 
+                     (cfln-set-struct-value-copy confluence-page-struct 
                                                "content" (buffer-string))
                      comment minor-edit) 
                     nil nil t))
   t)
 
-(defun cf-save-is-minor-edit ()
+(defun cfln-save-is-minor-edit ()
   (and confluence-save-page-minor-edits
        (or (not (eq confluence-save-page-minor-edits 'ask))
            (not (y-or-n-p "Major edit? ")))))
 
-(defun cf-save-get-comment (minor-edit)
+(defun cfln-save-get-comment (minor-edit)
   (if (and confluence-save-page-comments
            (or (not (eq confluence-save-page-comments 'major))
                (not minor-edit)))
       (read-string "Modification comment: " nil nil nil t)
     nil))
 
-(defun cf-revert-page (&optional arg noconfirm)
+(defun cfln-revert-page (&optional arg noconfirm)
   "Reverts the current buffer to the latest version of the current confluence
 page."
   (if (and confluence-load-info
@@ -1081,24 +1083,24 @@ page."
             (inhibit-read-only t))
         ;; use the load-info to reload the page, so we can reload normal pages
         ;; and search pages
-        (cf-destructure-load-info confluence-load-info
+        (cfln-destructure-load-info confluence-load-info
           (cond 
            ;; reload normal page data
            ((eq page-type 'page)
-            (cf-insert-page (cf-rpc-get-page-by-id page-id-or-query) confluence-load-info)
-            (cf-update-buffer-name))
+            (cfln-insert-page (cfln-rpc-get-page-by-id page-id-or-query) confluence-load-info)
+            (cfln-update-buffer-name))
            ;; reload search page data
            ((eq page-type 'search)
-            (cf-insert-search-results 
-             (cf-rpc-search page-id-or-query space-name)
+            (cfln-insert-search-results 
+             (cfln-rpc-search page-id-or-query space-name)
              confluence-load-info))
            ;; reload attachment data
            ((eq page-type 'attachment)
             (if (or (not (file-exists-p buffer-file-name))
                     (equal "d"
-                           (cf-read-char "Revert attachment from Confluence (d)ownload or local (f)ile [d]: " 
+                           (cfln-read-char "Revert attachment from Confluence (d)ownload or local (f)ile [d]: " 
                             "[df]" "d")))
-                (cf-insert-attachment page-name space-name file-name 
+                (cfln-insert-attachment page-name space-name file-name 
                                       page-id-or-query (current-buffer) nil
                                       confluence-load-info)
               (let ((revert-buffer-function nil))
@@ -1106,30 +1108,30 @@ page."
            (t
             (error "Invalid load info")))))))
 
-(defun cf-show-page (full-page &optional anchor-name)
+(defun cfln-show-page (full-page &optional anchor-name)
   "Does the work of finding or creating a buffer for the given confluence page
 and loading the data if necessary."
   (confluence-push-tag-stack)
   ;; note, we save the current url as confluence-input-url in case the buffer
   ;; has a different value locally from a previous search (this value will
   ;; override it)
-  (let* ((confluence-input-url (cf-get-url))
-         (load-info (list 'page confluence-input-url (cf-get-struct-value full-page "id")))
-         (page-buffer (get-buffer-create (cf-format-buffer-name
-                                          (cf-get-struct-value full-page "title")
-                                          (cf-get-struct-value full-page "space")))))
+  (let* ((confluence-input-url (cfln-get-url))
+         (load-info (list 'page confluence-input-url (cfln-get-struct-value full-page "id")))
+         (page-buffer (get-buffer-create (cfln-format-buffer-name
+                                          (cfln-get-struct-value full-page "title")
+                                          (cfln-get-struct-value full-page "space")))))
     ;; only insert the data if the buffer is new, otherwise just show current
     ;; data
     (with-current-buffer page-buffer
       (if (not (equal confluence-load-info load-info))
           (progn
-            (cf-insert-page full-page load-info)
+            (cfln-insert-page full-page load-info)
             (goto-char (point-min))))
       (if anchor-name
           (confluence-goto-anchor anchor-name)))
     (switch-to-buffer page-buffer)))
 
-(defun cf-insert-page (full-page &optional load-info browse-function keep-undo page-mode)
+(defun cfln-insert-page (full-page &optional load-info browse-function keep-undo page-mode)
   "Does the work of loading confluence page data into the current buffer.  If
 KEEP-UNDO, the current undo state will not be erased.  The LOAD-INFO is the 
 information necessary to reload the page (if nil, normal page info is used)."
@@ -1145,8 +1147,8 @@ information necessary to reload the page (if nil, normal page info is used)."
         (toggle-read-only))
     ;; save/update various page metadata
     (setq confluence-page-struct full-page)
-    (setq confluence-page-url (cf-get-url))
-    (setq confluence-page-id (cf-get-struct-value confluence-page-struct "id"))
+    (setq confluence-page-url (cfln-get-url))
+    (setq confluence-page-id (cfln-get-struct-value confluence-page-struct "id"))
     (setq confluence-load-info 
           (or load-info
               (list 'page confluence-page-url confluence-page-id)))
@@ -1158,10 +1160,10 @@ information necessary to reload the page (if nil, normal page info is used)."
       (widen)
       (erase-buffer)
       ;; actually insert the new page contents
-      (insert (cf-get-struct-value confluence-page-struct "content" ""))
+      (insert (cfln-get-struct-value confluence-page-struct "content" ""))
       (goto-char old-point))
     ;; remove the contents from the page metadata
-    (cf-set-struct-value 'confluence-page-struct "content" "")
+    (cfln-set-struct-value 'confluence-page-struct "content" "")
     ;; restore/setup buffer state
     (set-buffer-modified-p nil)
     (or keep-undo
@@ -1171,26 +1173,26 @@ information necessary to reload the page (if nil, normal page info is used)."
     (if was-read-only
         (toggle-read-only 1))))
 
-(defun cf-show-search-results (search-results load-info)
+(defun cfln-show-search-results (search-results load-info)
   "Does the work of finding or creating a buffer for the given confluence
 search results and loading the data into that page."
   (confluence-push-tag-stack)
   ;; note, we save the current url as confluence-input-url in case the buffer
   ;; has a different value locally from a previous searcg (this value will
   ;; override it)
-  (let ((confluence-input-url (cf-get-url))
+  (let ((confluence-input-url (cfln-get-url))
         (search-buffer (get-buffer-create "*Confluence Search Results*")))
     (with-current-buffer search-buffer
       ;; only reload the page if this is a new search, otherwise keep current
       ;; data
       (if (not (equal confluence-load-info load-info))
           (progn
-            (cf-insert-search-results search-results load-info)
+            (cfln-insert-search-results search-results load-info)
             (goto-char (point-min))
             (toggle-read-only 1))))  ;; always make search results read-only
     (switch-to-buffer search-buffer)))
 
-(defun cf-insert-search-results (search-results load-info)
+(defun cfln-insert-search-results (search-results load-info)
   "Does the work of loading confluence search data into the current buffer."
   (let ((search-page (list (cons "title" "Confluence Search Results"))))
     ;; turn the search results into a wiki-like page
@@ -1198,24 +1200,24 @@ search results and loading the data into that page."
       (insert "h1. Confluence Search Results for '" (nth 2 load-info) "'\n\n")
       (dolist (search-result search-results)
         (insert (format "[%s|%s]\n"
-                        (cf-get-struct-value search-result "title")
-                        (cf-get-struct-value search-result "id")))
-        (let ((excerpt (cf-get-struct-value search-result "excerpt")))
-          (if (cf-string-notempty excerpt)
+                        (cfln-get-struct-value search-result "title")
+                        (cfln-get-struct-value search-result "id")))
+        (let ((excerpt (cfln-get-struct-value search-result "excerpt")))
+          (if (cfln-string-notempty excerpt)
               (insert excerpt "\n")))
         (insert "\n"))
-      (cf-set-struct-value 'search-page "content" (buffer-string)))
+      (cfln-set-struct-value 'search-page "content" (buffer-string)))
     ;; install a special browse-function for loading the search urls (which
     ;; use page ids)
-    (cf-insert-page search-page load-info 'cf-search-browse-function nil 'confluence-search-mode)))
+    (cfln-insert-page search-page load-info 'cfln-search-browse-function nil 'confluence-search-mode)))
 
-(defun cf-search-browse-function (url)
+(defun cfln-search-browse-function (url)
   "Browse function used in search buffers (the links are page ids)."
-  (cf-show-page (cf-rpc-get-page-by-id url)))
+  (cfln-show-page (cfln-rpc-get-page-by-id url)))
 
-(defun cf-simple-browse-function (url)
+(defun cfln-simple-browse-function (url)
   "Simple browse function used in page buffers."
-  (let ((space-name (cf-get-struct-value confluence-page-struct "space"))
+  (let ((space-name (cfln-get-struct-value confluence-page-struct "space"))
         (page-name url)
         (anchor-name nil)
         (attachment-name nil)
@@ -1239,34 +1241,34 @@ search results and loading the data into that page."
           (setq page-name (match-string 1 page-name))))
     (cond
      ;; open an attachment
-     ((cf-string-notempty attachment-name)
-      (if (cf-string-empty page-name)
+     ((cfln-string-notempty attachment-name)
+      (if (cfln-string-empty page-name)
           (progn
-            (setq page-name (cf-get-struct-value 
+            (setq page-name (cfln-get-struct-value 
                              confluence-page-struct "title"))
             (setq page-id confluence-page-id)))
       (confluence-get-attachment page-name space-name attachment-name page-id))
      ;; goto anchor in this page
-     ((and (cf-string-notempty anchor-name)
-           (cf-string-empty page-name))
+     ((and (cfln-string-notempty anchor-name)
+           (cfln-string-empty page-name))
       (confluence-goto-anchor anchor-name))
      ;; goto space "home" page
      ((and explicit-space
-           (cf-string-notempty space-name)
-           (cf-string-empty page-name))
-      (cf-show-page
-       (cf-rpc-get-page-by-id (cf-get-struct-value 
-                               (cf-rpc-get-space space-name) "homePage"))))
+           (cfln-string-notempty space-name)
+           (cfln-string-empty page-name))
+      (cfln-show-page
+       (cfln-rpc-get-page-by-id (cfln-get-struct-value 
+                               (cfln-rpc-get-space space-name) "homePage"))))
      ;; goto user profile page (load like space "home" page)
      ((and (not explicit-space)
            (string-match "^[~].+$" page-name))
-      (cf-show-page
-       (cf-rpc-get-page-by-id (cf-get-struct-value 
-                               (cf-rpc-get-space page-name) "homePage"))))
+      (cfln-show-page
+       (cfln-rpc-get-page-by-id (cfln-get-struct-value 
+                               (cfln-rpc-get-space page-name) "homePage"))))
      (t
       (confluence-get-page page-name space-name anchor-name)))))
 
-(defun cf-get-parent-page-id (try-current-page &optional space-name)
+(defun cfln-get-parent-page-id (try-current-page &optional space-name)
   "Gets a confluence parent page id, optionally using the one in the current
 buffer."
   ;; if current page is a confluence page and try-current-page, ask if use
@@ -1276,26 +1278,26 @@ buffer."
            (yes-or-no-p "Use current confluence page for parent? "))
       confluence-page-id
     ;; otherwise, prompt for parent page
-    (let ((parent-space-name (or space-name (cf-get-struct-value confluence-page-struct "space")))
+    (let ((parent-space-name (or space-name (cfln-get-struct-value confluence-page-struct "space")))
           (parent-page-name nil))
-      (cf-prompt-page-info "Parent " 'parent-page-name 'parent-space-name)
-      (if (and (cf-string-notempty parent-space-name)
-               (cf-string-notempty parent-page-name))
-          (cf-get-struct-value (cf-rpc-get-page-by-name parent-space-name parent-page-name) "id")
+      (cfln-prompt-page-info "Parent " 'parent-page-name 'parent-space-name)
+      (if (and (cfln-string-notempty parent-space-name)
+               (cfln-string-notempty parent-page-name))
+          (cfln-get-struct-value (cfln-rpc-get-page-by-name parent-space-name parent-page-name) "id")
         nil))))
 
-(defun cf-show-attachment (page-name space-name file-name page-id 
+(defun cfln-show-attachment (page-name space-name file-name page-id 
                            save-only-file-name)
   "Does the work of finding or creating a buffer for the given confluence
 attachment and loading the data if necessary."
   (confluence-push-tag-stack)
   ;; note, we save the current url as confluence-input-url in case the buffer
   ;; has a different value locally
-  (let* ((confluence-input-url (cf-get-url))
+  (let* ((confluence-input-url (cfln-get-url))
          (load-info (list 'attachment confluence-input-url page-id
                           space-name page-name file-name))
          (result-buffer (get-buffer-create 
-                         (cf-format-attachment-buffer-name 
+                         (cfln-format-attachment-buffer-name 
                           file-name page-name space-name))))
     ;; only insert the data if the buffer is new, otherwise just show current
     ;; data
@@ -1305,7 +1307,7 @@ attachment and loading the data if necessary."
                       (with-current-buffer result-buffer
                         confluence-load-info)
                       load-info)))
-            (cf-insert-attachment page-name space-name file-name
+            (cfln-insert-attachment page-name space-name file-name
                                   page-id result-buffer save-only-file-name
                                   load-info))
       ;; on save only, kill temp buf
@@ -1316,7 +1318,7 @@ attachment and loading the data if necessary."
         (message "File successfully downloaded to %s" save-only-file-name)
       (switch-to-buffer result-buffer))))
 
-(defun cf-insert-attachment (page-name space-name file-name page-id 
+(defun cfln-insert-attachment (page-name space-name file-name page-id 
                              result-buffer save-only-file-name load-info)
   "Downloads and inserts the attachment with the given info into the given
 RESULT-BUFFER for viewing.  If the image is a supported image type and
@@ -1331,7 +1333,7 @@ saved to this file name and not viewed."
                 (attachment-struct nil))
 
     ;; grab attachment struct
-    (setq attachment-struct (with-quiet-rpc (cf-rpc-get-attachment page-id file-name)))
+    (setq attachment-struct (with-quiet-rpc (cfln-rpc-get-attachment page-id file-name)))
     
     ;; prep result buffer
     (with-current-buffer result-buffer
@@ -1342,21 +1344,21 @@ saved to this file name and not viewed."
       ;; revert-buffer-function and push/pop
       (setq confluence-load-info load-info)
       ;; set page-struct w/ url only, so confluence-browse-page will work
-      (setq confluence-page-struct (list (cons "url" (cf-get-struct-value attachment-struct "url"))))
+      (setq confluence-page-struct (list (cons "url" (cfln-get-struct-value attachment-struct "url"))))
       (make-local-variable 'revert-buffer-function)
-      (setq revert-buffer-function 'cf-revert-page)
+      (setq revert-buffer-function 'cfln-revert-page)
       (if (not buffer-file-name)
           (setq buffer-file-name 
                 (or save-only-file-name
-                    (cf-create-temp-attachment-file file-name)))))
+                    (cfln-create-temp-attachment-file file-name)))))
 
     ;; start async attachment download
     (setq asynch-buffer
-          (cf-rpc-execute-async 
+          (cfln-rpc-execute-async 
            (lambda ()
              (unwind-protect
                  (condition-case err
-                     (cf-attachment-download-callback result-buffer)
+                     (cfln-attachment-download-callback result-buffer)
                    (error
                     (setq download-error (error-message-string err))))
                (setq retrieval-done t
@@ -1389,12 +1391,12 @@ saved to this file name and not viewed."
             (write-region (point-min) (point-max) buffer-file-name nil 'quiet))
         ;; otherwise, prep the buffer for viewing
         (if (or (not confluence-show-attachment-images)
-                (not (cf-insert-image file-name)))
+                (not (cfln-insert-image file-name)))
           (set-auto-mode))
         (set-buffer-modified-p nil)
         (goto-char (point-min))))))
 
-(defun cf-insert-image (attachment-file-name)
+(defun cfln-insert-image (attachment-file-name)
   "Determines if the attachment data in the current buffer with
 ATTACHMENT-FILE-NAME is supported image data and, if so, displays the image
 data.  Returns t if the data was successfully displayed as an image, nil
@@ -1407,7 +1409,7 @@ otherwise."
            (if (let ((case-fold-search t))
                  (string-match "\\.bmp\\'" attachment-file-name))
                (progn
-                 (cf-bmp-to-tif)
+                 (cfln-bmp-to-tif)
                  (setq attachment-file-name (concat attachment-file-name ".tif"))))
            
            ;; don't even bother if the file name does not match supported
@@ -1427,7 +1429,7 @@ otherwise."
              (if (not img-type)
                  (progn
                    (setq img-type (file-name-extension attachment-file-name))
-                   (if (cf-string-notempty img-type)
+                   (if (cfln-string-notempty img-type)
                        (setq img-type (intern (downcase img-type)))
                      (setq img-type nil))))
              (if (not img-type)
@@ -1458,7 +1460,7 @@ otherwise."
           nil)
       t)))
 
-(defun cf-attachment-download-callback (result-buffer)
+(defun cfln-attachment-download-callback (result-buffer)
   "Handles an attachment xml-rpc download result buffer.  Copies the
 attachment data to the given RESULT-BUFFER (base64 decoding or entity decoding
 if necessary)."
@@ -1500,10 +1502,10 @@ if necessary)."
                 (set-buffer-multibyte t)))
         ;; otherwise, we need to do entity decoding
         (let ((confluence-do-coding t))
-          (cf-url-decode-entities-in-buffer result-buffer)))
+          (cfln-url-decode-entities-in-buffer result-buffer)))
       (set-buffer-modified-p nil))))
 
-(defun cf-bmp-to-tif ()
+(defun cfln-bmp-to-tif ()
   "Converts a bmp to a tif in the current buffer."
   (let ((tmp-src-file (make-temp-file "bmp"))
         (tmp-dst-file (make-temp-file "tif")))
@@ -1528,14 +1530,14 @@ if necessary)."
     (delete-file tmp-src-file)
     (delete-file tmp-dst-file)))
 
-(defun cf-format-attachment-buffer-name (file-name page-name space-name)
+(defun cfln-format-attachment-buffer-name (file-name page-name space-name)
   "Creates a buffer name for an attachment with the given info."
-  (if (and (cf-string-notempty page-name)
-           (cf-string-notempty space-name))
+  (if (and (cfln-string-notempty page-name)
+           (cfln-string-notempty space-name))
       (format "%s<%s/%s>" file-name space-name page-name)
     file-name))
 
-(defun cf-create-temp-attachment-file (file-name)
+(defun cfln-create-temp-attachment-file (file-name)
   "Creates a temporary file name for an attachment with the given info with
 the pattern '<temp-dir>/<file-prefix>-<temp-id>.<file-ext>'."
   (save-match-data
@@ -1549,25 +1551,25 @@ the pattern '<temp-dir>/<file-prefix>-<temp-id>.<file-ext>'."
              (expand-file-name (concat prefix "-") temporary-file-directory))
             suffix))))
 
-(defun cf-get-server-info ()
+(defun cfln-get-server-info ()
   "Gets the (possibly cached) server info."
-  (let ((server-info (cf-get-struct-value confluence-server-info-alist (cf-get-url))))
+  (let ((server-info (cfln-get-struct-value confluence-server-info-alist (cfln-get-url))))
     (if (not server-info)
         (progn
-          (setq server-info (cf-rpc-get-server-info))
-          (cf-set-struct-value 'confluence-server-info-alist (cf-get-url) server-info)))
+          (setq server-info (cfln-rpc-get-server-info))
+          (cfln-set-struct-value 'confluence-server-info-alist (cfln-get-url) server-info)))
     server-info))
 
-(defun cf-is-version-at-least (major-version minor-version)
+(defun cfln-is-version-at-least (major-version minor-version)
   "Return t if the server version is at least the given version, nil otherwise."
-  (let* ((server-info (cf-get-server-info))
-         (cur-major-version (string-to-number (cf-get-struct-value server-info "majorVersion" "0")))
-         (cur-minor-version (string-to-number (cf-get-struct-value server-info "minorVersion" "0"))))
+  (let* ((server-info (cfln-get-server-info))
+         (cur-major-version (string-to-number (cfln-get-struct-value server-info "majorVersion" "0")))
+         (cur-minor-version (string-to-number (cfln-get-struct-value server-info "minorVersion" "0"))))
     (or (> cur-major-version major-version)
         (and (= cur-major-version major-version)
              (>= cur-minor-version minor-version)))))
 
-(defun cf-prompt-page-info (prompt-prefix page-name-var space-name-var &optional def-page-name)
+(defun cfln-prompt-page-info (prompt-prefix page-name-var space-name-var &optional def-page-name)
   "Prompts for page info using the appropriate input function and sets the given vars appropriately."
   (let ((result-list
          (funcall confluence-prompt-page-function prompt-prefix
@@ -1575,106 +1577,106 @@ the pattern '<temp-dir>/<file-prefix>-<temp-id>.<file-ext>'."
     (set page-name-var (nth 0 result-list))
     (set space-name-var (nth 1 result-list))))
 
-(defun cf-prompt-page-by-component (prompt-prefix page-name space-name def-page-name)
+(defun confluence-prompt-page-by-component (prompt-prefix page-name space-name def-page-name)
   "Builds a list of (page-name space-name <url>) by prompting the user for each.  Suitable for use with
 `confluence-prompt-page-function'."
   (let ((result-list nil))
     ;; prompt for url if confluence-switch-url is specified
     (if (and confluence-switch-url (not confluence-input-url))
-        (setq confluence-input-url (cf-prompt-url prompt-prefix)))
+        (setq confluence-input-url (cfln-prompt-url prompt-prefix)))
     ;; now, prompt for space and page if not already defined by caller
     (if (not space-name)
-        (setq space-name (cf-prompt-space-name prompt-prefix)))
+        (setq space-name (cfln-prompt-space-name prompt-prefix)))
     (push space-name result-list)
     (push (or page-name
-              (cf-prompt-page-name space-name prompt-prefix def-page-name)) result-list)
+              (cfln-prompt-page-name space-name prompt-prefix def-page-name)) result-list)
     result-list))
 
-(defun cf-prompt-page-by-path (prompt-prefix page-name space-name def-page-name)
+(defun confluence-prompt-page-by-path (prompt-prefix page-name space-name def-page-name)
   "Builds a list of (page-name space-name <url>) by prompting the user for each (where page and space name are
 specified as one path).  Suitable for use with `confluence-prompt-page-function'."
   (let ((result-list nil)
         (page-path nil))
     ;; prompt for url if confluence-switch-url is specified
     (if (and confluence-switch-url (not confluence-input-url))
-        (setq confluence-input-url (cf-prompt-url prompt-prefix)))
+        (setq confluence-input-url (cfln-prompt-url prompt-prefix)))
     ;; now, prompt for space/page if both are not already defined by caller
     (if (and page-name space-name)
         (setq result-list (cons page-name (cons space-name result-list)))
       (progn
-        (setq page-path (cf-prompt-path prompt-prefix page-name space-name def-page-name))
+        (setq page-path (cfln-prompt-path prompt-prefix page-name space-name def-page-name))
         ;; split path into space and page
-        (push (cf-get-space-name-from-path page-path) result-list)
-        (push (cf-get-page-name-from-path page-path) result-list)))
+        (push (cfln-get-space-name-from-path page-path) result-list)
+        (push (cfln-get-page-name-from-path page-path) result-list)))
     result-list))
 
-(defun cf-prompt-url (&optional prompt-prefix)
+(defun cfln-prompt-url (&optional prompt-prefix)
   "Prompts for a confluence url."
   (let ((temp-url-hist (and confluence-default-space-alist
                             (mapcar 'car confluence-default-space-alist))))
-    (read-string (concat (or prompt-prefix "") "Confluence Url: ") nil 'temp-url-hist (cf-get-url) t)))
+    (read-string (concat (or prompt-prefix "") "Confluence Url: ") nil 'temp-url-hist (cfln-get-url) t)))
 
-(defun cf-prompt-space-name (&optional prompt-prefix)
+(defun cfln-prompt-space-name (&optional prompt-prefix)
   "Prompts for a confluence space name."
-  (let* ((def-space-name (cf-get-default-space))
-         (init-space-name (cf-get-struct-value confluence-page-struct "space"))
+  (let* ((def-space-name (cfln-get-default-space))
+         (init-space-name (cfln-get-struct-value confluence-page-struct "space"))
          (space-prompt (if def-space-name
                            (format "Confluence Space [%s]: " def-space-name)
                          "Confluence Space: ")))
-    (cf-read-string prompt-prefix space-prompt 'confluence-space-history
-                    (cf-get-url)
-                    'cf-complete-space-name t
+    (cfln-read-string prompt-prefix space-prompt 'confluence-space-history
+                    (cfln-get-url)
+                    'cfln-complete-space-name t
                     (if (not (equal init-space-name def-space-name))
                         init-space-name
                       nil)
                     def-space-name)))
 
-(defun cf-prompt-page-name (space-name &optional prompt-prefix def-page-name)
+(defun cfln-prompt-page-name (space-name &optional prompt-prefix def-page-name)
   "Prompts for a confluence page name."
   (let ((page-prompt (if def-page-name
                          (format "Confluence Page Name [%s]: " def-page-name)
                        "Confluence Page Name: ")))
-    (cf-read-string prompt-prefix page-prompt
-                    'confluence-page-history (cons space-name (cf-get-url))
-                    'cf-complete-page-name nil nil def-page-name)))
+    (cfln-read-string prompt-prefix page-prompt
+                    'confluence-page-history (cons space-name (cfln-get-url))
+                    'cfln-complete-page-name nil nil def-page-name)))
 
-(defun cf-prompt-path (prompt-prefix page-name space-name def-page-name)
+(defun cfln-prompt-path (prompt-prefix page-name space-name def-page-name)
   "Prompts for a confluence page path."
-  (cf-read-string prompt-prefix "Confluence Space/PageName: "
-                  'confluence-path-history (cf-get-url)
-                  'cf-complete-page-path nil
+  (cfln-read-string prompt-prefix "Confluence Space/PageName: "
+                  'confluence-path-history (cfln-get-url)
+                  'cfln-complete-page-path nil
                   (if space-name
                       (concat space-name "/" (or def-page-name ""))
                     nil)))
 
-(defun cf-minibuffer-setup ()
+(defun cfln-minibuffer-setup ()
   "Minibuffer setup hook which changes some keybindings for confluence completion."
   (if confluence-completing-read
       ;; don't do completion when spaces are entered (just confusing)
       (local-set-key " " 'self-insert-command)))
 
-(add-hook 'minibuffer-setup-hook 'cf-minibuffer-setup t)
+(add-hook 'minibuffer-setup-hook 'cfln-minibuffer-setup t)
 
-(defun cf-get-space-name-from-path (page-path)
+(defun cfln-get-space-name-from-path (page-path)
   "Parses the space name from the given PAGE-PATH."
   (if (string-match "\\([^/]+\\)[/]\\(.*\\)" page-path)
       (match-string 1 page-path)
-    (cf-get-default-space)))
+    (cfln-get-default-space)))
 
-(defun cf-get-page-name-from-path (page-path)
+(defun cfln-get-page-name-from-path (page-path)
   "Parses the page name from the given PAGE-PATH."
   (if (string-match "\\([^/]+\\)[/]\\(.*\\)" page-path)
       (match-string 2 page-path)
     page-path))
 
-(defun cf-complete-space-name (comp-str pred comp-flag)
+(defun cfln-complete-space-name (comp-str pred comp-flag)
   "Completion function for confluence spaces."
   (if (not current-other-completions)
       (with-current-buffer completion-buffer
-        (setq current-other-completions (cf-result-to-completion-list (cf-rpc-get-spaces) "key"))))
-  (cf-complete comp-str pred comp-flag current-other-completions))
+        (setq current-other-completions (cfln-result-to-completion-list (cfln-rpc-get-spaces) "key"))))
+  (cfln-complete comp-str pred comp-flag current-other-completions))
 
-(defun cf-complete-page-name (comp-str pred comp-flag)
+(defun cfln-complete-page-name (comp-str pred comp-flag)
   "Completion function for confluence pages."
 
   ;; clear previous completion info if beginning of current string does not match previous string
@@ -1709,8 +1711,8 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
                         (concat "\"" title-query "*\""))))
         (setq last-comp-str tmp-comp-str)
         (with-current-buffer completion-buffer
-          (setq current-completions (cf-result-to-completion-list
-                                     (cf-rpc-search title-query space-name confluence-max-completion-results)
+          (setq current-completions (cfln-result-to-completion-list
+                                     (cfln-rpc-search title-query space-name confluence-max-completion-results)
                                      "title")))
         ;; the query results are flaky, if we had results before and none now, reuse the old list
         (if (and (= (length current-completions) 0)
@@ -1718,9 +1720,9 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
             (setq current-completions old-current-completions))
         )))
   
-  (cf-complete comp-str pred comp-flag current-completions))
+  (cfln-complete comp-str pred comp-flag current-completions))
 
-(defun cf-complete-page-path (comp-str pred comp-flag)
+(defun cfln-complete-page-path (comp-str pred comp-flag)
   "Completion function for confluence page paths."
   (let ((space-name comp-str)
         (page-name nil))
@@ -1729,8 +1731,8 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
           (setq space-name (match-string 1 comp-str))
           (setq page-name (match-string 2 comp-str))))
     (if (not page-name)
-        (cf-complete-space-name comp-str pred comp-flag)
-      (let ((page-comp-result (cf-complete-page-name page-name pred comp-flag)))
+        (cfln-complete-space-name comp-str pred comp-flag)
+      (let ((page-comp-result (cfln-complete-page-name page-name pred comp-flag)))
         (cond
          ((stringp page-comp-result)
           (concat space-name "/" page-comp-result))
@@ -1740,29 +1742,29 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
               (concat space-name "/" el)) page-comp-result))
          (t page-comp-result))))))
 
-(defun cf-complete-recent-label-name (comp-str pred comp-flag)
+(defun cfln-complete-recent-label-name (comp-str pred comp-flag)
   "Completion function for confluence labels."
   (if (not current-completions)
       (with-current-buffer completion-buffer
-        (setq current-completions (cf-result-to-completion-list (cf-rpc-get-recent-labels
+        (setq current-completions (cfln-result-to-completion-list (cfln-rpc-get-recent-labels
                                                                  confluence-max-completion-results) "name"))))
-  (cf-complete comp-str pred comp-flag current-completions))
+  (cfln-complete comp-str pred comp-flag current-completions))
 
-(defun cf-update-buffer-name ()
+(defun cfln-update-buffer-name ()
   "Sets the buffer name based on the buffer info if it is a page buffer."
-  (let ((page-name (cf-get-struct-value confluence-page-struct "title"))
-        (space-name (cf-get-struct-value confluence-page-struct "space")))
+  (let ((page-name (cfln-get-struct-value confluence-page-struct "title"))
+        (space-name (cfln-get-struct-value confluence-page-struct "space")))
     ;; only update if the current buffer has title and space (this method will
     ;; do nothing on search pages)
-    (if (and (cf-string-notempty page-name)
-             (cf-string-notempty space-name))
-        (rename-buffer (cf-format-buffer-name page-name space-name)))))
+    (if (and (cfln-string-notempty page-name)
+             (cfln-string-notempty space-name))
+        (rename-buffer (cfln-format-buffer-name page-name space-name)))))
 
-(defun cf-format-buffer-name (page-name space-name)
+(defun cfln-format-buffer-name (page-name space-name)
   "Formats the name of the buffer given the page and space name."
   (format "%s<%s>" page-name space-name))
 
-(defun cf-get-url ()
+(defun cfln-get-url ()
   "Gets the confluence url to use for the current operation."
   ;; get the relevant url, by precedence:
   ;; - input url - optionally defined by current operation
@@ -1771,11 +1773,11 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
   ;; - confluence-url user configured default
   (or confluence-input-url confluence-page-url confluence-url))
 
-(defun cf-get-default-space ()
+(defun cfln-get-default-space ()
   "Gets the default confluence space to use for the current operation."
-  (cf-get-struct-value confluence-default-space-alist (cf-get-url)))
+  (cfln-get-struct-value confluence-default-space-alist (cfln-get-url)))
 
-(defun cf-maybe-url-decode-entities-in-value (value)
+(defun cfln-maybe-url-decode-entities-in-value (value)
   "Decodes XML entities in the given value, which may be a struct, list or
 something else.  This is only done if the xml-substitute-special
 function was not successfully overridden."
@@ -1784,12 +1786,12 @@ function was not successfully overridden."
        ((listp value)
         (dolist (struct-val value)
           (setcdr struct-val 
-                  (cf-maybe-url-decode-entities-in-value (cdr struct-val)))))
+                  (cfln-maybe-url-decode-entities-in-value (cdr struct-val)))))
        ((stringp value)
-        (setq value (cf-url-decode-entities-in-string value)))))
+        (setq value (cfln-url-decode-entities-in-string value)))))
   value)
 
-(defun cf-url-decode-entities-in-string (string)
+(defun cfln-url-decode-entities-in-string (string)
   "Convert XML entities to string values:
     &amp;    ==>  &
     &lt;     ==>  <
@@ -1804,7 +1806,7 @@ function was not successfully overridden."
 	(erase-buffer)
 	(buffer-disable-undo (current-buffer))
 	(insert string)
-        (cf-url-decode-entities-in-buffer (current-buffer))
+        (cfln-url-decode-entities-in-buffer (current-buffer))
 
         ;; always convert to unix newlines
 	(goto-char (point-min))
@@ -1813,7 +1815,7 @@ function was not successfully overridden."
 	(buffer-string))
     string))
 
-(defun cf-url-decode-entities-in-buffer (decode-buffer)
+(defun cfln-url-decode-entities-in-buffer (decode-buffer)
   "Convert XML entities to string values:
     &amp;    ==>  &
     &lt;     ==>  <
@@ -1837,11 +1839,11 @@ function was not successfully overridden."
                   ;; decimal number character entities
                   ((save-match-data
                      (and (string-match "^#\\([0-9]+\\)$" ent-str)
-                          (cf-number-entity-to-string (string-to-number (match-string-no-properties 1 ent-str))))))
+                          (cfln-number-entity-to-string (string-to-number (match-string-no-properties 1 ent-str))))))
                   ;; hexidecimal number character entities
                   ((save-match-data
                      (and (string-match "^#x\\([0-9A-Fa-f]+\\)$" ent-str)
-                          (cf-number-entity-to-string (string-to-number (match-string-no-properties 1 ent-str) 16)))))
+                          (cfln-number-entity-to-string (string-to-number (match-string-no-properties 1 ent-str) 16)))))
                   ;; unknown entity
                   (t (concat "&" ent-str ";")))
                  t t)
@@ -1850,21 +1852,21 @@ function was not successfully overridden."
             (progn 
               (message "Warning: could not decode character with code point %S" untrans-char)
               (replace-match "")
-              (cf-insert-untranslated-entity untrans-char)))
+              (cfln-insert-untranslated-entity untrans-char)))
         (goto-char ent-point)))))
 
-(defun cf-number-entity-to-string (num)
+(defun cfln-number-entity-to-string (num)
   "Convert an xml number entity value to the appropriate character string."
   (let ((c (decode-char 'ucs num)))
     (if (not c)
         (throw 'untrans-char num))
     (string c)))
 
-(defun cf-insert-untranslated-entity (num)
+(defun cfln-insert-untranslated-entity (num)
   "Insert codes for an untranslateable entity (compatible with how later
 versions of emacs handle untranslateable characters)."
   (let ((cur-pos (point))
-        (disp-char (cf-number-entity-to-string #xFFFD)))
+        (disp-char (cfln-number-entity-to-string #xFFFD)))
 ;;     (insert disp-char)
     (insert ?\0)
     (put-text-property cur-pos (point) 'untranslated-utf-8 num)
@@ -1872,7 +1874,7 @@ versions of emacs handle untranslateable characters)."
     (message "FOO inserted %S" (buffer-substring cur-pos (point)))
 ))
 
-(defun cf-string-to-number-entity (str)
+(defun cfln-string-to-number-entity (str)
   "Convert a single character string to the appropriate xml number entity
 value"
   (let ((c (encode-char (string-to-char str) 'ucs)))
@@ -1881,7 +1883,7 @@ value"
           (throw 'untrans-char str))
     c))
         
-(defun cf-remove-untranslated-entity (pos)
+(defun cfln-remove-untranslated-entity (pos)
   "Remove codes for an untranslateable entity (compatible with how later
 versions of emacs handle untranslateable characters).  Returns the original
 code point."
@@ -1902,7 +1904,7 @@ code point."
     untrans-value))
 
 
-(defun cf-url-encode-nonascii-entities-in-string (value)
+(defun cfln-url-encode-nonascii-entities-in-string (value)
   "Entity encodes any non-ascii values in the given string."
   (if (string-match "[^[:ascii:]]" value)
       (with-temp-buffer
@@ -1912,9 +1914,9 @@ code point."
           (let ((match-str (match-string 0))
                 encoded-char)
             (if (catch 'untrans-char
-                  (setq encoded-char (cf-string-to-number-entity match-str))
+                  (setq encoded-char (cfln-string-to-number-entity match-str))
                   nil)
-                (setq encoded-char (cf-remove-untranslated-entity
+                (setq encoded-char (cfln-remove-untranslated-entity
                                     (match-beginning 0))))
 	    (if encoded-char 
 		(replace-match 
@@ -1929,7 +1931,7 @@ code point."
                                               activate compile preactivate)
       "Fix (possibly) broken entity decoding in `xml-substitute-special'."
       (if confluence-do-coding
-          (let ((decoded-string (cf-url-decode-entities-in-string (ad-get-arg 0))))
+          (let ((decoded-string (cfln-url-decode-entities-in-string (ad-get-arg 0))))
             ;; if xml-rpc is expecting utf-8, re-encode this string
             (if xml-rpc-allow-unicode-string
                 (setq decoded-string (encode-coding-string decoded-string 'utf-8 t)))
@@ -1951,7 +1953,7 @@ basic entities."
   ad-do-it
   (if confluence-do-coding
       (setq ad-return-value 
-            (cf-url-encode-nonascii-entities-in-string ad-return-value))))
+            (cfln-url-encode-nonascii-entities-in-string ad-return-value))))
 
 (defadvice url-display-percentage (around url-display-percentage-quiet
                                           activate compile preactivate)
@@ -1993,11 +1995,11 @@ mode.")
 (define-derived-mode confluence-mode confluence-edit-mode "Confluence"
   "Set major mode for editing Confluence Wiki pages."
   (make-local-variable 'revert-buffer-function)
-  (setq revert-buffer-function 'cf-revert-page)
+  (setq revert-buffer-function 'cfln-revert-page)
   ;; FIXME, should we support local backup files?
   (make-local-variable 'make-backup-files)
   (setq make-backup-files nil)
-  (add-hook 'write-contents-hooks 'cf-save-page)
+  (add-hook 'write-contents-hooks 'cfln-save-page)
   ;; we set this to some nonsense so save-buffer works
   (setq buffer-file-name (expand-file-name (concat "." (buffer-name)) "~/"))
 )
