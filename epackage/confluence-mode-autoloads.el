@@ -139,4 +139,4 @@
 (autoload 'cfln-beginning-of-block-p            "confluence-edit" "" nil)
 (autoload 'cfln-end-of-block-p                  "confluence-edit" "" nil)
 (autoload 'confluence-edit-mode                 "confluence-edit" "" t)
-(provide 'confluence-mode-autoloads)
+(provide 'confluence-mode-epkg-autoloads)
