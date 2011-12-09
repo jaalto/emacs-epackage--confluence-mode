@@ -1,7 +1,7 @@
 Package: confluence-mode
 Section: extensions
 License: GPL-2+
-Depends: emacs (>= 22.1), xml-rpc
+Depends: emacs (>= 22.1), lib-xml-rpc
 Status: stable unsafe
 Compat:
 Maintainer: Jari Aalto <jari.aalto@cante.net>
