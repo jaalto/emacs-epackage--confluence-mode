@@ -114,9 +114,10 @@ UpdateLispFiles ()
     cd "$VCSDIR"
 
     Run tar -cf - \
-      $(find . -type d \( -name .$VCSNAME \) -prune  \
+      $(find . -type d \( -name .$VCSNAME -o -name .git \) -prune  \
 	-a ! -name .$VCSNAME \
-	-o \( -type f -a ! -name .${vcs}ignore \)
+	-a ! -name .git \
+	-o \( -type f -a ! -name .${vcs}ignore -a ! -name "*.elc" \)
        ) |
     Run tar --directory "$EPKGDIR/.." -xvf -
 }
