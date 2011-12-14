@@ -20,12 +20,12 @@ Commentary: confluence.el
 X-Development:
   2011-04-11 the unsafe namespace issue was reported to
   http://code.google.com/p/confluence-el/issues/detail?id=24
-  The bug was closed 2011-04-11. Code still does not use one
-  common namespace, so 'unsafe' label is kept in effect.
+  The bug was closed 2011-04-11 but did not fix the issue
+  in full.
 Description: mode for interacting with confluence wiki
  Confluence is a commercial Wiki engine and this package offer remote
- editing of its pages.
+ editing of its pages. Basic commands:
  .
- After installation (see INSTALL in source file), you can use M-x
- confluence-get-page and enter the path to the confluence page. Save pages
- with C-x C-s to push changes back to Wiki.
+    M-x confluence-get-page        Edit page at confluence Wiki server
+    C-x C-s                        Push page back
+    confluence-ediff-current-page  View chnages
