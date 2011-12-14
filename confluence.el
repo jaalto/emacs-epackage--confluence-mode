@@ -1,13 +1,18 @@
 ;;; confluence.el --- Emacs mode for interacting with confluence wikis
 
-;; Copyright (C) 2008  Free Software Foundation, Inc.
+;; Copyright (C) 2008-2011 Kyle Burton, James Ahlborn
 
 ;; Author: James Ahlborn
 ;; Author: Kyle Burton <kyle.burton@gmail.com>
 ;; URL: http://code.google.com/p/confluence-el/
 ;; Keywords: confluence, wiki, xmlrpc
-;; Version: 1.5-beta
-;; Package-Requires: ((xml-rpc "1.6.4") (confluence-edit "1.5-beta"))
+;; Version: 1.6-beta
+;; Package-Requires: ((xml-rpc "1.6.4") (confluence-edit "1.6-beta"))
+;; EmacsWiki: ConfluenceMode
+
+;; This file is NOT part of GNU Emacs.
+
+;;; License:
 
 ;; This file is free software; you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
@@ -154,13 +159,24 @@
 
 ;;; Code:
 
-(require 'xml-rpc)
-(require 'url-http)
-(require 'ediff)
-(require 'thingatpt)
-(require 'browse-url)
-(require 'image-file)
+;; Standard Emacs
+
+(eval-when-compile
+  ;; forward declarations for the Byte Compiler
+  (defvar url-http-version)
+  (defvar url-http-attempt-keepalives)
+  (defvar url-http-response-status)
+  (defvar thing-at-point-url-regexp))
+
+(autoload 'thing-at-point-looking-at "thingatpt")
+(autoload 'ediff-buffers "ediff" nil t)
+(autoload 'browse-url "browse-url" nil t)
+(autoload 'browse-url-of-buffer "browse-url" nil t)
+(autoload 'image-file-name-regexp "image-file")
+
+;; External libraries
 (require 'confluence-edit)
+(require 'xml-rpc)
 
 (defgroup confluence nil
   "Support for editing confluence wikis."
@@ -313,6 +329,8 @@ Possible values:
 (defvar confluence-tag-stack nil
   "TAGs style stack support for push (\\C-xw.) and pop (\\C-xw*)")
 
+(setq confluence-get-attachment-names-function 'cfln-get-attachment-names)
+
 (defconst confluence-search-types (list (cons "content" t) (cons "title" t) (cons "label" t))
   "Supported search types.")
 
@@ -422,7 +440,8 @@ confluence page.  Analogous to M-. (`find-tag').  Any ARG is passed to
      ((thing-at-point-looking-at "[!]\\([^]|\n]+\\)\\([|]\\([^]\n]*\\)\\)?[!]")
       (setq url (match-string 1))
       (setq is-embedded-content t))
-     ((thing-at-point-looking-at thing-at-point-url-regexp)
+     ((and (require 'thingatpt)
+	   (thing-at-point-looking-at thing-at-point-url-regexp))
       (setq url (match-string 0))))
     ;; determine how to handle the link (may be straight-up url)
     (if url
@@ -616,7 +635,7 @@ bindings are:
     space-name  page-name file-name) old-point)
 
 old-point is the point on the page which was pushed.  The 
-preceding list of info is the laod-info described in 
+preceding list of info is the load-info described in 
 `cfln-destructure-load-info'.
 "
   `(destructuring-bind
@@ -911,6 +930,7 @@ necessary."
   "Executes a raw confluence rpc call.  Handles all necessary encoding/decoding of strings."
   (setq xml-rpc-fault-string nil)
   (setq xml-rpc-fault-code   nil)
+  (require 'url-http)
   (let* ((url-http-version "1.0")  ;; this make the xml-rpc parser happy
          (url-http-attempt-keepalives nil)
          (page-url (cfln-get-url))   ;; figure out which url to use
@@ -931,7 +951,10 @@ necessary."
        ;; fault string) and then rethrow the error
        (if xml-rpc-fault-string
            (setq xml-rpc-fault-string (cfln-maybe-url-decode-entities-in-value 
-                                       xml-rpc-fault-string)))
+                                       xml-rpc-fault-string))
+         (if (and (consp err) (eq 'wrong-type-argument (car err)))
+             (error (format "Failed parsing xml-rpc result, please check your confluence-url configuration, currently '%s' (actual error: %s)"
+                            page-url (error-message-string err)))))
        (error (cfln-maybe-url-decode-entities-in-value (error-message-string err)))))))
 
 (defun cfln-rpc-get-page-by-name (space-name page-name)
@@ -959,6 +982,15 @@ SPACE-NAME."
                                 (cons "minorEdit" minor-edit))))
         (cfln-rpc-execute 'confluence1.updatePage page-struct page-options))
     (cfln-rpc-execute 'confluence1.storePage page-struct)))
+
+(defun cfln-get-attachment-names ()
+  "Gets the names of the attachments for the current page, if a
+confluence page."
+  (if confluence-page-id
+      (with-quiet-rpc
+       (cfln-result-to-completion-list
+        (cfln-rpc-get-attachments confluence-page-id) "fileName"))
+    nil))
 
 (defun cfln-rpc-get-spaces ()
   "Executes a confluence 'getSpaces' rpc call."
@@ -1355,7 +1387,7 @@ saved to this file name and not viewed."
     ;; start async attachment download
     (setq asynch-buffer
           (cfln-rpc-execute-async 
-           (lambda ()
+           (lambda (&rest cb-args)
              (unwind-protect
                  (condition-case err
                      (cfln-attachment-download-callback result-buffer)
@@ -1464,6 +1496,7 @@ otherwise."
   "Handles an attachment xml-rpc download result buffer.  Copies the
 attachment data to the given RESULT-BUFFER (base64 decoding or entity decoding
 if necessary)."
+  (require 'url-http)
   (url-mark-buffer-as-dead (current-buffer))
   (if (not (numberp url-http-response-status))
       (error "Why? url-http-response-status is %s"
@@ -1635,7 +1668,8 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
   "Prompts for a confluence page name."
   (let ((page-prompt (if def-page-name
                          (format "Confluence Page Name [%s]: " def-page-name)
-                       "Confluence Page Name: ")))
+                       "Confluence Page Name: "))
+        (completion-ignore-case t))
     (cfln-read-string prompt-prefix page-prompt
                     'confluence-page-history (cons space-name (cfln-get-url))
                     'cfln-complete-page-name nil nil def-page-name)))
@@ -1671,56 +1705,56 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
 
 (defun cfln-complete-space-name (comp-str pred comp-flag)
   "Completion function for confluence spaces."
-  (if (not current-other-completions)
-      (with-current-buffer completion-buffer
-        (setq current-other-completions (cfln-result-to-completion-list (cfln-rpc-get-spaces) "key"))))
-  (cfln-complete comp-str pred comp-flag current-other-completions))
+  (condition-case err
+      (if (not cfln-read-current-other-completions)
+          (with-current-buffer cfln-read-completion-buffer
+            (setq cfln-read-current-other-completions (cfln-result-to-completion-list (cfln-rpc-get-spaces) "key"))))
+    (error
+     ;; just proceed with current info (probably a communication error, which will be worked out later)
+     (message "Failed loading confluence spaces for completion: %s" (error-message-string err))
+     (setq cfln-read-current-other-completions (list (cons comp-str t)))))
+  (cfln-complete comp-str pred comp-flag cfln-read-current-other-completions))
 
 (defun cfln-complete-page-name (comp-str pred comp-flag)
   "Completion function for confluence pages."
 
   ;; clear previous completion info if beginning of current string does not match previous string
   (let ((tmp-comp-str (replace-regexp-in-string "^\\(\\s-\\|\\W\\)*\\(.*?\\)\\(\\s-\\|\\W\\)*$"
-                                                "\\2" comp-str t))
+                                                "\\2" (downcase comp-str) t))
         (old-current-completions nil))
-    (if (and last-comp-str
-             (not (eq t (compare-strings last-comp-str 0 (length last-comp-str)
-                                         tmp-comp-str 0 (length last-comp-str) t))))
+    (if (and cfln-read-last-comp-str
+             (not (eq t (compare-strings cfln-read-last-comp-str 0 (length cfln-read-last-comp-str)
+                                         tmp-comp-str 0 (length cfln-read-last-comp-str) t))))
         (progn
-          (setq last-comp-str nil)
-          (setq current-completions nil))
+          (setq cfln-read-last-comp-str nil)
+          (setq cfln-read-current-completions nil))
       ;; if the new string is over the repeat search threshold, clear previous search results
-      (if (and last-comp-str
-               (<= (+ (length last-comp-str) confluence-min-page-repeat-completion-length)
+      (if (and cfln-read-last-comp-str
+               (<= (+ (length cfln-read-last-comp-str) confluence-min-page-repeat-completion-length)
                    (length tmp-comp-str)))
           (progn
-            (setq old-current-completions current-completions)
-            (setq current-completions nil))))
+            (setq old-current-completions cfln-read-current-completions)
+            (setq cfln-read-current-completions nil))))
     
   ;; retrieve page completions if necessary
   (if (and (>= confluence-min-page-completion-length 0)
-           (not current-completions)
+           (not cfln-read-current-completions)
            (>= (length tmp-comp-str) confluence-min-page-completion-length))
       (let ((title-query
              (replace-regexp-in-string "\\(\\W\\)" "\\\\\\&" tmp-comp-str t)))
-        ;; the search syntax is a little flaky, sometimes quotes are good, sometimes not...
-        (setq title-query
-              (concat "title: "
-                      (if (string-match "\\s-" title-query)
-                          (concat title-query "*")
-                        (concat "\"" title-query "*\""))))
-        (setq last-comp-str tmp-comp-str)
-        (with-current-buffer completion-buffer
-          (setq current-completions (cfln-result-to-completion-list
+        (setq title-query (concat "title: " title-query "*"))
+        (setq cfln-read-last-comp-str tmp-comp-str)
+        (with-current-buffer cfln-read-completion-buffer
+          (setq cfln-read-current-completions (cfln-result-to-completion-list
                                      (cfln-rpc-search title-query space-name confluence-max-completion-results)
                                      "title")))
         ;; the query results are flaky, if we had results before and none now, reuse the old list
-        (if (and (= (length current-completions) 0)
+        (if (and (= (length cfln-read-current-completions) 0)
                  old-current-completions)
-            (setq current-completions old-current-completions))
+            (setq cfln-read-current-completions old-current-completions))
         )))
   
-  (cfln-complete comp-str pred comp-flag current-completions))
+  (cfln-complete comp-str pred comp-flag cfln-read-current-completions))
 
 (defun cfln-complete-page-path (comp-str pred comp-flag)
   "Completion function for confluence page paths."
@@ -1744,11 +1778,11 @@ specified as one path).  Suitable for use with `confluence-prompt-page-function'
 
 (defun cfln-complete-recent-label-name (comp-str pred comp-flag)
   "Completion function for confluence labels."
-  (if (not current-completions)
-      (with-current-buffer completion-buffer
-        (setq current-completions (cfln-result-to-completion-list (cfln-rpc-get-recent-labels
+  (if (not cfln-read-current-completions)
+      (with-current-buffer cfln-read-completion-buffer
+        (setq cfln-read-current-completions (cfln-result-to-completion-list (cfln-rpc-get-recent-labels
                                                                  confluence-max-completion-results) "name"))))
-  (cfln-complete comp-str pred comp-flag current-completions))
+  (cfln-complete comp-str pred comp-flag cfln-read-current-completions))
 
 (defun cfln-update-buffer-name ()
   "Sets the buffer name based on the buffer info if it is a page buffer."
