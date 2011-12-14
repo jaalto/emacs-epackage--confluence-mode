@@ -1,4 +1,2 @@
-(or (featurep 'confluence-mode-0loaddefs)
-    (require 'confluence-mode-0loaddefs))
-;; (require 'confluence-mode-autoloads)
+(require 'confluence-mode-epkg-0loaddefs)
 (provide 'confluence-mode-epkg-install)
