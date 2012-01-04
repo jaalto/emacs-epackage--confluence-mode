@@ -1,7 +1,7 @@
 
 ;;;### (autoloads (confluence-search confluence-get-page) "confluence"
 ;;;;;;  "../confluence.el" (20200 41950))
-;;; Generated autoloads from ../confluence.el
+;;; Generated autoloads from confluence.el
 
 (autoload 'confluence-get-page "confluence" "\
 Loads a confluence page for the given SPACE-NAME and PAGE-NAME
@@ -21,4 +21,3 @@ the given SPACE-NAME.
 \(fn &optional QUERY SPACE-NAME)" t nil)
 
 ;;;***
-(provide 'confluence-mode-epkg-0loaddefs)
