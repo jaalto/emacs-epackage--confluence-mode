@@ -1,5 +1,5 @@
 ;; Prevent loading this file. Study the examples.
-(error "confluence-mode-epkg-examples.el is not a configuration file.")
+(error "confluence-mode-epackage-examples.el is not a configuration file.")
 
 (setq confluence-url "http://example.com/confluence/rpc/xmlrpc")
 
