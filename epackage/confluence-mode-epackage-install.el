@@ -1,2 +1,2 @@
-(require 'confluence-mode-epkg-0loaddefs)
-(provide 'confluence-mode-epkg-install)
+(require 'confluence-mode-epackage-autoloads)
+(provide 'confluence-mode-epackage-install)
