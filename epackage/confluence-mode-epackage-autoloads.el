@@ -140,4 +140,4 @@
 (autoload 'cfln-url-encode-nonascii-entities-in-string "confluence" "" nil)
 (autoload 'confluence-mode                      "confluence" "" t)
 (autoload 'confluence-search-mode               "confluence" "" t)
-(provide 'confluence-mode-epkg-autoloads)
+(provide 'confluence-mode-epackage-autoloads)
