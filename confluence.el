@@ -71,7 +71,7 @@
 ;; Also, if you want keybindings for confluence-mode, you can put the
 ;; following in your .emacs file:
 ;;
-;; (add-hook 'confluence-mode-hook
+;; (add-hook 'confluence-edit-mode-hook
 ;;   (local-set-key "\C-xw" confluence-prefix-map)
 ;;   (local-set-key "\M-j" 'confluence-newline-and-indent)
 ;;   (local-set-key "\M-;" 'confluence-list-indent-dwim))
@@ -177,6 +177,7 @@
 ;; External libraries
 (require 'confluence-edit)
 (require 'xml-rpc)
+(require 'url-parse)
 
 (defgroup confluence nil
   "Support for editing confluence wikis."
@@ -266,6 +267,14 @@ Possible values:
   :type '(choice (const :tag "Always" t)
                  (const :tag "Major Only" major)
                  (const :tag "Never" nil)))
+
+(defcustom confluence-auto-save-dir nil
+  "Directory to which edited but not saved pages should be
+temporarily saved (using the emacs auto-save-mode functionality).
+If nil, auto save is disabled for confluence buffers."
+  :group 'confluence
+  :type 'string)
+
 
 (defvar confluence-before-save-hook nil
   "List of functions to be called before saving a confluence page.")
@@ -411,6 +420,9 @@ saved off into a stack (`confluence-tag-stack') that you can then
 pop back out of to return back through your navigation path (with
 M-* `confluence-pop-tag-stack')."
   (interactive)
+  ;; for "entry point" methods, login first (if necessary), otherwise prompts
+  ;; can get confusing
+  (confluence-login)
   (cfln-prompt-page-info nil 'page-name 'space-name)
   (cfln-show-page (cfln-rpc-get-page-by-name space-name page-name) 
                 anchor-name))
@@ -797,6 +809,9 @@ latest version of that page saved in confluence."
   "Runs a confluence search for QUERY, optionally restricting the results to
 the given SPACE-NAME."
   (interactive)
+  ;; for "entry point" methods, login first (if necessary), otherwise prompts
+  ;; can get confusing
+  (confluence-login)
   (confluence-search-by-type 'content query space-name))
 
 (defun confluence-search-in-space (&optional query)
@@ -1090,7 +1105,9 @@ page."
                      (cfln-set-struct-value-copy confluence-page-struct 
                                                "content" (buffer-string))
                      comment minor-edit) 
-                    nil nil t))
+                    nil nil t)
+    (when confluence-auto-save-dir
+      (delete-auto-save-file-if-necessary)))
   t)
 
 (defun cfln-save-is-minor-edit ()
@@ -2025,12 +2042,54 @@ basic entities."
   "Keybinding prefix map which can be bound for common functions in confluence
 mode.")
 
+(defun cfln-make-safe-file-name (fname)
+  "Make a super-safe file name in pseudo-url-encoded format,
+borrowed from `make-auto-save-file-name'"
+  (let ((limit 0))
+    (while (string-match "[^A-Za-z0-9-_.~#+]" fname limit)
+	(let* ((character (aref fname (match-beginning 0)))
+	       (replacement
+                ;; For multibyte characters, this will produce more than
+                ;; 2 hex digits, so is not true URL encoding.
+                (format "%%%02X" character)))
+	  (setq fname (replace-match replacement t t fname))
+	  (setq limit (1+ (match-end 0))))))
+  fname)
 
-(define-derived-mode confluence-mode confluence-edit-mode "Confluence"
+(defun cfln-make-auto-save-file-name (operation &rest args)
+  "Creates the auto save file name for a confluence buffer by combining
+the configured `confluence-auto-save-dir', the url host name, the
+confluence space name, and the buffer name."
+  (let ((file-name-handler-alist cfln-file-name-handler-alist))
+    (let ((save-dir
+           (concat (expand-file-name confluence-auto-save-dir) "/"
+                   (cfln-make-safe-file-name (url-host (url-generic-parse-url confluence-page-url))) "/"
+                   (cfln-make-safe-file-name (cfln-get-struct-value confluence-page-struct "space")))))
+      (if (not (file-directory-p save-dir))
+          (make-directory save-dir t))
+      (concat save-dir "/" (cfln-make-safe-file-name (buffer-name))))))
+
+(defun confluence-recover-this-page ()
+  "Recovers a confluence page buffer with existing auto save information."
+  (interactive)
+  (when (and buffer-auto-save-file-name
+             (yes-or-no-p (format "Recover auto save file %s? " buffer-auto-save-file-name)))
+    (let ((file-contents nil)
+          (recover-fname buffer-auto-save-file-name))
+      (setq file-contents
+            (with-temp-buffer
+              (insert-file-contents recover-fname nil)
+              (buffer-string)))
+      (cfln-set-struct-value 'confluence-page-struct "content" file-contents)
+      (cfln-insert-page confluence-page-struct nil nil t)
+      (set-buffer-modified-p t)
+      (set-buffer-auto-saved))
+  ))
+
+(define-derived-mode confluence-base-mode confluence-edit-mode "ConfluenceBase"
   "Set major mode for editing Confluence Wiki pages."
   (make-local-variable 'revert-buffer-function)
   (setq revert-buffer-function 'cfln-revert-page)
-  ;; FIXME, should we support local backup files?
   (make-local-variable 'make-backup-files)
   (setq make-backup-files nil)
   (add-hook 'write-contents-hooks 'cfln-save-page)
@@ -2038,13 +2097,24 @@ mode.")
   (setq buffer-file-name (expand-file-name (concat "." (buffer-name)) "~/"))
 )
 
-(define-derived-mode confluence-search-mode confluence-mode "ConfluenceSearch"
+(define-derived-mode confluence-mode confluence-base-mode "Confluence"
+  ;; setup auto save mode if enabled
+  (when (and confluence-auto-save-dir
+             (not buffer-auto-save-file-name))
+    (let ((cfln-file-name-handler-alist file-name-handler-alist)
+          (file-name-handler-alist (list '(".*" . cfln-make-auto-save-file-name))))
+      (auto-save-mode t))
+    (if (and buffer-auto-save-file-name
+             (file-exists-p buffer-auto-save-file-name))
+        (message "%s has auto save data; consider M-x confluence-recover-this-page" (buffer-name))))
+)
+
+(define-derived-mode confluence-search-mode confluence-base-mode "ConfluenceSearch"
   "Set major mode for viewing Confluence Search results."
   (local-set-key [return] 'confluence-get-page-at-point)
 )
 
 ;; TODO 
-;; - add "backup" support (save to restore from local file)?
 ;; - extended link support
 ;;   - [$id] links?
 ;; - add more label support?
